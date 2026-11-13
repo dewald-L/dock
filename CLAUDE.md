@@ -18,9 +18,12 @@ plugin API.
     panic-safe.
   - `update.go`: keys and the leader. `view.go`: layout and rendering (every line is
     padded or clipped to the exact width). `palette.go`: the command palette.
-  - `home.go`: the home screen (no tab open): numbered blocks in a 1–3 column grid,
-    `homeKey` (digits, hjkl, enter). `homeIDs` fixes the order and numbers (installed
-    plugins first, system last) each time home appears. `renderHome` is in `view.go`.
+  - `home.go`: the home screen (no tab open): `renderHome` draws a centred modal
+    (≤ 64 wide) with a vertical list of bordered entries that scrolls inside it, or
+    `renderHomeList`, a plain list, when the tallest entry doesn't fit or the width is
+    under 40. `borderLine` draws labelled borders. `homeKey` (digits, j/k, g/G, enter).
+    `homeIDs` fixes the order and numbers (installed plugins first, system last) each
+    time home appears.
   - `summary.go`: `plugin.Summarizer` and exec `summary` commands. `syncHome()` (called
     from `sync()`) fetches when home appears and bumps `homeGen`; `summaryTickMsg{gen}`
     refreshes every 30 s and is dropped once home is hidden. Each fetch is its own

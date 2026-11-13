@@ -130,7 +130,7 @@ Rules for the plugin's module:
 |---|---|
 | `ID` | Lowercase letters, digits and `-`. **Never change it after release**, because it names the plugin's data and config directories. |
 | `Name` | Shown in tabs, pane borders, the home screen and the palette. Keep it short (one or two words). |
-| `Description` | One line, shown in its home screen block and `dock plugin list`. |
+| `Description` | One line, shown in its home screen entry and `dock plugin list`. |
 | `Version` | Free-form; semver recommended. |
 | `Display`, `Lifecycle`, `Multi` | See section 2. |
 | `MinWidth`, `MinHeight` | Below this size the host shows a placeholder instead of calling `View`. |
@@ -290,16 +290,24 @@ Both exist before `New` is called.
 
 ## 10. Home screen summaries
 
-dock's home screen (shown while no tab is open) has a numbered block per plugin:
-`[1] Name` in the title, the description, and the kind at the bottom. A plugin can add a
-few lines of live status to its block, so the home screen works as a dashboard:
+dock's home screen (shown while no tab is open) is a centred panel with a vertical
+list of entries, one per plugin: `[1] Name` in the title, the description, and the kind
+at the bottom. A plugin can add a few lines of live status to its entry, so the home
+screen works as a dashboard:
 
 ```
-╭─ [1] lazysheet ──────────────── ● ─╮
-│ Timesheets: log, browse, edit and… │
-│ Today 8h15 · week 18h15 / 40h      │
-│ Mo ███ Tu ██▌ We ▎ Th · Fr ·       │
-╰──────────────────── native · full ─╯
+╭─ dock ───────────────────────────────── 0.2.0 ─╮
+│                                                │
+│ ╭─ [1] lazysheet ──────────────────────── ● ─╮ │
+│ │ Timesheets: log, browse, edit and total o… │ │
+│ │ Today 8h15 · this week 18h15 / 40h         │ │
+│ │ Mo█ Tu▆ We█ Th· Fr· Sa· Su·                │ │
+│ ╰──────────────────────────── native · full ─╯ │
+│ ╭─ [2] Scratch ──────────────────────────────╮ │
+│ │ A notepad that saves itself                │ │
+│ ╰──────────────────────────── native · tile ─╯ │
+│                                                │
+╰───────────────── 1-9 open · j/k move · ? help ─╯
 ```
 
 **When to implement one:** when there is one or two numbers worth seeing without
@@ -326,9 +334,9 @@ func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
 The rules:
 
 - **Plain text only.** Up to 3 short lines (`plugin.MaxSummaryLines`); the host
-  truncates lines that don't fit the block, and strips ANSI codes and control
+  truncates lines that don't fit the entry, and strips ANSI codes and control
   characters. No layout, no colour: `Level` (`LevelOk`, `LevelWarn`, `LevelErr`, or
-  the default `LevelNone`) puts a dot in the theme's colour on the block's border.
+  the default `LevelNone`) puts a dot in the theme's colour on the entry's border.
 - **Read-only, and independent of any instance.** `ctx` has the same `DataDir`,
   `ConfigDir` and `Theme` as `New` gets, but no model exists necessarily.
 - **Runs off the UI goroutine, possibly while an instance of the same plugin is open,
@@ -337,11 +345,11 @@ The rules:
 - **Cheap: aim for under 100 ms.** dock fetches summaries when the home screen
   appears and every 30 seconds while it stays visible, and stops when it's hidden.
   After 2 seconds a call counts as timed out. A call that never returns blocks further
-  calls for that plugin (its block says "not responding"); it never blocks other
-  blocks or the UI.
-- **Errors and panics** are shown, muted, in your block only. After a failed refresh
+  calls for that plugin (its entry says "not responding"); it never blocks other
+  entries or the UI.
+- **Errors and panics** are shown, muted, in your entry only. After a failed refresh
   the last good summary stays, with a "refresh failed" note.
-- Plugins without `Summarizer` keep working unchanged; their block shows the
+- Plugins without `Summarizer` keep working unchanged; their entry shows the
   description only.
 
 **Exec plugins** can have a summary too: a command whose stdout (first 3 lines) is
@@ -350,8 +358,8 @@ shown. Set it with `dock plugin add --summary 'df -h --output=avail,pcent / | ta
 environment plus `DOCK_SUMMARY=1`, runs under the same 2 second timeout, and a
 non-zero exit shows the first line of stderr.
 
-Home screen keys: `1`–`9` open the plugin with that number, `h j k l` (or arrows)
-move between blocks, `enter`/`o` open the selected one. Numbers follow the plugin
+Home screen keys: `1`–`9` open the plugin with that number, `j`/`k` (or arrows)
+move, `enter`/`o` open the selected one. Numbers follow the plugin
 order (built-in plugins last), stay fixed while the home screen is open, and stop at
 9. These keys only exist on the home screen: inside a tab, digits go to the plugin
 as usual.

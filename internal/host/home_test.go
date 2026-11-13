@@ -104,7 +104,7 @@ func TestSummaryIsolation(t *testing.T) {
 	var goodCalls atomic.Int32
 	var goodText atomic.Value
 	goodText.Store("first")
-	a := newHomeApp(t, nil, 100, 30,
+	a := newHomeApp(t, nil, 100, 40,
 		withSummary("good", func() (plugin.Summary, error) {
 			goodCalls.Add(1)
 			return plugin.Summary{Lines: []string{goodText.Load().(string), "\x1b[31mred\x1b[0m\tline"}, Level: plugin.LevelWarn}, nil
@@ -114,7 +114,7 @@ func TestSummaryIsolation(t *testing.T) {
 		withSummary("panicky", func() (plugin.Summary, error) { panic("kaboom") }),
 		tile("plain"),
 	)
-	v := frameAt(t, a, 100, 30)
+	v := frameAt(t, a, 100, 40)
 	if b := block(t, v, "[1] good"); !strings.Contains(b, "first") || !strings.Contains(b, "red line") || strings.Contains(b, "\x1b") {
 		t.Fatalf("good block should show its cleaned lines:\n%s", b)
 	}
@@ -138,7 +138,7 @@ func TestSummaryIsolation(t *testing.T) {
 	// and the others refresh normally
 	goodText.Store("second")
 	send(a, summaryTickMsg{a.homeGen})
-	v = frameAt(t, a, 100, 30)
+	v = frameAt(t, a, 100, 40)
 	if b := block(t, v, "[1] good"); !strings.Contains(b, "second") || goodCalls.Load() != 2 {
 		t.Fatalf("good should refresh (calls=%d):\n%s", goodCalls.Load(), b)
 	}
@@ -149,7 +149,7 @@ func TestSummaryIsolation(t *testing.T) {
 
 func TestSummaryKeepsLastGood(t *testing.T) {
 	var fail atomic.Bool
-	a := newHomeApp(t, nil, 100, 30, withSummary("good", func() (plugin.Summary, error) {
+	a := newHomeApp(t, nil, 100, 40, withSummary("good", func() (plugin.Summary, error) {
 		if fail.Load() {
 			return plugin.Summary{}, errors.New("nope")
 		}
@@ -157,29 +157,29 @@ func TestSummaryKeepsLastGood(t *testing.T) {
 	}))
 	// while a refresh is in flight the last summary stays
 	a.sums["good"].loading = true
-	if b := block(t, frameAt(t, a, 100, 30), "[1] good"); !strings.Contains(b, "all fine") || strings.Contains(b, "…") {
+	if b := block(t, frameAt(t, a, 100, 40), "[1] good"); !strings.Contains(b, "all fine") || strings.Contains(b, "…") {
 		t.Fatalf("refreshing must not blank the block:\n%s", b)
 	}
 	a.sums["good"].loading = false
 	fail.Store(true)
 	send(a, summaryTickMsg{a.homeGen})
-	b := block(t, frameAt(t, a, 100, 30), "[1] good")
+	b := block(t, frameAt(t, a, 100, 40), "[1] good")
 	if !strings.Contains(b, "all fine") || !strings.Contains(b, "refresh failed: nope") {
 		t.Fatalf("a failed refresh keeps the last good summary:\n%s", b)
 	}
 }
 
 func TestSummaryLoadingShowsEllipsis(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 30, withSummary("good", lines("x")))
+	a := newHomeApp(t, nil, 100, 40, withSummary("good", lines("x")))
 	delete(a.sums, "good")
-	if b := block(t, frameAt(t, a, 100, 30), "[1] good"); !strings.Contains(b, "…") {
+	if b := block(t, frameAt(t, a, 100, 40), "[1] good"); !strings.Contains(b, "…") {
 		t.Fatalf("before the first result the block shows …:\n%s", b)
 	}
 }
 
 func TestSummaryRefreshStopsWhenHidden(t *testing.T) {
 	var calls atomic.Int32
-	a := newHomeApp(t, nil, 100, 30, withSummary("good", func() (plugin.Summary, error) {
+	a := newHomeApp(t, nil, 100, 40, withSummary("good", func() (plugin.Summary, error) {
 		calls.Add(1)
 		return plugin.Summary{Lines: []string{"hi"}}, nil
 	}))
@@ -221,11 +221,11 @@ func TestExecSummary(t *testing.T) {
 		{ID: "none", Command: []string{"true"}},
 	}}
 	start := time.Now()
-	a := newHomeApp(t, cfg, 100, 30)
+	a := newHomeApp(t, cfg, 100, 40)
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("a hanging summary command held things up for %v", d)
 	}
-	v := frameAt(t, a, 100, 30)
+	v := frameAt(t, a, 100, 40)
 	if b := block(t, v, "[1] lines"); !strings.Contains(b, "a") || !strings.Contains(b, "c") || strings.Contains(b, "│ d") {
 		t.Fatalf("exec summary shows the first 3 lines:\n%s", b)
 	}
@@ -247,7 +247,7 @@ func TestSummaryClean(t *testing.T) {
 	}
 }
 
-// ---- grid layout ----
+// ---- modal layout ----
 
 func manyPlugins(n int) []plugin.Plugin {
 	var ps []plugin.Plugin
@@ -262,29 +262,46 @@ func manyPlugins(n int) []plugin.Plugin {
 	return ps
 }
 
-func TestHomeGridFits(t *testing.T) {
-	for _, sz := range []struct{ w, h, cols int }{{60, 20, 1}, {90, 24, 2}, {160, 45, 3}} {
+// modalBounds finds the modal's border in the content rows of a frame:
+// its left and right columns and its top and bottom rows.
+func modalBounds(t *testing.T, v string) (x0, x1, y0, y1 int) {
+	t.Helper()
+	ls := strings.Split(v, "\n")
+	y0 = -1
+	for y, l := range ls {
+		if i := strings.Index(l, "╭─ dock "); i >= 0 && y0 < 0 {
+			r := []rune(l)
+			x0 = len([]rune(l[:i]))
+			x1 = x0
+			for x1+1 < len(r) && r[x1] != '╮' || x1 == x0 {
+				x1++
+			}
+			y0 = y
+		}
+	}
+	if y0 < 0 {
+		t.Fatalf("no modal in:\n%s", v)
+	}
+	for y := y0 + 1; y < len(ls); y++ {
+		if r := []rune(ls[y]); x0 < len(r) && r[x0] == '╰' {
+			y1 = y
+			break
+		}
+	}
+	return
+}
+
+func TestHomeFits(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{60, 20}, {90, 24}, {160, 45}, {40, 10}, {20, 5}} {
 		t.Run(fmt.Sprintf("%dx%d", sz.w, sz.h), func(t *testing.T) {
-			a := newHomeApp(t, nil, sz.w, sz.h, manyPlugins(5)...)
-			v := frameAt(t, a, sz.w, sz.h)
-			var row1 string
-			for _, l := range strings.Split(v, "\n") {
-				if strings.Contains(l, "[1] p01") {
-					row1 = l
-				}
-			}
-			got := strings.Count(row1, "╭")
-			if got != sz.cols {
-				t.Fatalf("want %d blocks per row, got %d:\n%s", sz.cols, got, v)
-			}
-			if !strings.Contains(v, "today 1h15") || !strings.Contains(v, "native · tile") {
-				t.Fatalf("blocks show the summary and kind hint:\n%s", v)
-			}
-			// every selection and the palette and help overlays still fit
-			for range 8 {
-				keys(a, "l", "j")
+			a := newHomeApp(t, nil, sz.w, sz.h, manyPlugins(10)...)
+			frameAt(t, a, sz.w, sz.h)
+			for range 12 {
+				keys(a, "j")
 				frameAt(t, a, sz.w, sz.h)
 			}
+			keys(a, "G")
+			frameAt(t, a, sz.w, sz.h)
 			keys(a, "?")
 			frameAt(t, a, sz.w, sz.h)
 			keys(a, "x", ":")
@@ -294,59 +311,110 @@ func TestHomeGridFits(t *testing.T) {
 	}
 }
 
-func TestHomeGridKeys(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 40, manyPlugins(5)...) // 2 columns; p01..p05 then Plugins
+func TestHomeModalCentred(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{90, 24}, {160, 45}} {
+		a := newHomeApp(t, nil, sz.w, sz.h, manyPlugins(2)...)
+		v := frameAt(t, a, sz.w, sz.h)
+		x0, x1, y0, y1 := modalBounds(t, v)
+		left, right := x0, sz.w-1-x1
+		top, bottom := y0-1, (sz.h-2)-y1 // content rows are 1..h-2
+		if d := left - right; d < -1 || d > 1 {
+			t.Errorf("%dx%d: left margin %d, right %d:\n%s", sz.w, sz.h, left, right, v)
+		}
+		if d := top - bottom; d < -1 || d > 1 {
+			t.Errorf("%dx%d: top margin %d, bottom %d:\n%s", sz.w, sz.h, top, bottom, v)
+		}
+		if w := x1 - x0 + 1; w != homeModalWidth {
+			t.Errorf("%dx%d: modal %d wide, want %d", sz.w, sz.h, w, homeModalWidth)
+		}
+		if !strings.Contains(v, "today 1h15") || !strings.Contains(v, "native · tile") || !strings.Contains(v, homeKeyHint) {
+			t.Errorf("entries show summaries and kind hints, the modal its keys:\n%s", v)
+		}
+	}
+	// narrow: the modal takes the width minus a 2-column margin each side
+	a := newHomeApp(t, nil, 60, 20, manyPlugins(2)...)
+	if x0, x1, _, _ := modalBounds(t, frameAt(t, a, 60, 20)); x0 != 2 || x1 != 57 {
+		t.Errorf("60 wide: modal spans %d..%d, want 2..57", x0, x1)
+	}
+}
+
+func TestHomeVerticalList(t *testing.T) {
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...)
+	v := frameAt(t, a, 100, 40)
+	row := map[string]int{}
+	for y, l := range strings.Split(v, "\n") {
+		if n := strings.Count(l, "╭─ ["); n > 1 {
+			t.Fatalf("one entry per row, got %d on %q", n, l)
+		}
+		for _, k := range []string{"[1] p01", "[2] p02", "[3] p03", "[4] Plugins"} {
+			if strings.Contains(l, k) {
+				row[k] = y
+			}
+		}
+	}
+	if !(row["[1] p01"] < row["[2] p02"] && row["[2] p02"] < row["[3] p03"] && row["[3] p03"] < row["[4] Plugins"]) {
+		t.Fatalf("entries stack top to bottom: %v\n%s", row, v)
+	}
+}
+
+func TestHomeKeys(t *testing.T) {
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins
 	moves := []struct {
 		key  string
 		want int
-	}{{"l", 1}, {"l", 1}, {"j", 3}, {"h", 2}, {"h", 2}, {"k", 0}, {"k", 0}, {"j", 2}, {"j", 4}, {"j", 4}, {"l", 5}, {"l", 5}, {"G", 5}, {"g", 0}, {"down", 2}, {"right", 3}, {"up", 1}, {"left", 0}}
+	}{{"j", 1}, {"l", 1}, {"right", 1}, {"h", 1}, {"left", 1}, {"j", 2}, {"j", 3}, {"j", 3}, {"k", 2}, {"g", 0}, {"k", 0}, {"G", 3}, {"up", 2}, {"down", 3}}
 	for i, m := range moves {
 		keys(a, m.key)
 		if a.homeSel != m.want {
 			t.Fatalf("move %d (%s): sel=%d, want %d", i, m.key, a.homeSel, m.want)
 		}
 	}
-	// with an odd count, j from the right column drops to the last block
-	b := newHomeApp(t, nil, 100, 40, manyPlugins(4)...)
-	keys(b, "l", "j", "j")
-	if b.homeSel != 4 {
-		t.Fatalf("j into a shorter last row: sel=%d, want 4", b.homeSel)
-	}
-	v := frameAt(t, a, 100, 40)
-	if !strings.Contains(v, "[6] Plugins") {
-		t.Fatalf("the built-in manager comes last:\n%s", v)
-	}
-	keys(a, "j", "l", "enter") // sel 3 = p04
-	if a.findByPlugin("p04") == nil {
-		t.Fatal("enter opens the selected block")
-	}
-	keys(a, "ctrl+g", "x", "k", "o") // back home; sel 1 = p02
+	keys(a, "k", "k", "enter") // sel 1 = p02
 	if a.findByPlugin("p02") == nil {
-		t.Fatal("o opens the selected block")
+		t.Fatal("enter opens the selected entry")
+	}
+	keys(a, "ctrl+g", "x", "k", "o") // back home; sel 0 = p01
+	if a.findByPlugin("p01") == nil {
+		t.Fatal("o opens the selected entry")
 	}
 }
 
 func TestHomeScrollsToSelection(t *testing.T) {
-	a := newHomeApp(t, nil, 60, 20, manyPlugins(8)...)
+	a := newHomeApp(t, nil, 60, 20, manyPlugins(10)...)
 	v := frameAt(t, a, 60, 20)
-	if !strings.Contains(v, "↓ more") || strings.Contains(v, "[9] Plugins") {
-		t.Fatalf("a long list scrolls:\n%s", v)
+	if !strings.Contains(v, "↓ more") || strings.Contains(v, "↑ more") || strings.Contains(v, " Plugins ") {
+		t.Fatalf("a long list scrolls inside the modal:\n%s", v)
 	}
 	keys(a, "G")
 	v = frameAt(t, a, 60, 20)
-	if !strings.Contains(v, "[9] Plugins") || !strings.Contains(v, "↑ more") || strings.Contains(v, "[1] p01") {
-		t.Fatalf("the selection is scrolled into view:\n%s", v)
+	if !strings.Contains(v, " Plugins ") || !strings.Contains(v, "↑ more") || strings.Contains(v, "[1] p01") {
+		t.Fatalf("G brings the last entry into view:\n%s", v)
+	}
+	if _, _, _, y1 := modalBounds(t, v); !strings.Contains(strings.Split(v, "\n")[y1], "↑ more") {
+		t.Fatalf("the more marker is on the modal's bottom border:\n%s", v)
 	}
 	keys(a, "g")
-	if v = frameAt(t, a, 60, 20); !strings.Contains(v, "[1] p01") {
-		t.Fatalf("back to the top:\n%s", v)
+	if v = frameAt(t, a, 60, 20); !strings.Contains(v, "[1] p01") || strings.Contains(v, "↑ more") {
+		t.Fatalf("g goes back to the top:\n%s", v)
+	}
+}
+
+func TestHomeTinyFallsBackToList(t *testing.T) {
+	a := newHomeApp(t, nil, 36, 10, manyPlugins(3)...)
+	v := frameAt(t, a, 36, 10)
+	if strings.Contains(v, "╭") || !strings.Contains(v, "› [1] p01") || !strings.Contains(v, "[2] p02") {
+		t.Fatalf("below 40 wide: a plain list:\n%s", v)
+	}
+	keys(a, "j", "enter")
+	if a.findByPlugin("p02") == nil {
+		t.Fatal("the plain list still opens the selection")
 	}
 }
 
 // ---- number keys ----
 
 func TestNumberKeysOpenPlugins(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 30, tile("alpha"), tile("beta"), tile("gamma"))
+	a := newHomeApp(t, nil, 100, 40, tile("alpha"), tile("beta"), tile("gamma"))
 	for _, c := range []struct{ key, id string }{{"1", "alpha"}, {"2", "beta"}, {"3", "gamma"}, {"4", "plugins"}} {
 		keys(a, c.key)
 		if len(a.tabs) != 1 || a.focused().entry.Manifest.ID != c.id {
@@ -367,18 +435,21 @@ func TestNumberKeysOpenPlugins(t *testing.T) {
 
 func TestNoNumbersPastNine(t *testing.T) {
 	a := newHomeApp(t, nil, 160, 45, manyPlugins(11)...)
-	v := frameAt(t, a, 160, 45)
-	if !strings.Contains(v, "[9] p09") || strings.Contains(v, "[10]") || !strings.Contains(v, " p10 ") || !strings.Contains(v, " Plugins ") {
-		t.Fatalf("blocks after the ninth have no number:\n%s", v)
+	seen := frameAt(t, a, 160, 45)
+	keys(a, "G")
+	seen += frameAt(t, a, 160, 45)
+	if !strings.Contains(seen, "[9] p09") || strings.Contains(seen, "[10]") || strings.Contains(seen, "[11]") ||
+		!strings.Contains(seen, " p10 ") || !strings.Contains(seen, " Plugins ") {
+		t.Fatalf("entries after the ninth have no number:\n%s", seen)
 	}
-	keys(a, "G", "enter")
+	keys(a, "enter")
 	if a.findByPlugin("plugins") == nil {
-		t.Fatal("unnumbered blocks open with enter")
+		t.Fatal("unnumbered entries open with enter")
 	}
 }
 
 func TestDigitsInsideTabReachPlugin(t *testing.T) {
-	a := newHomeApp(t, &config.Config{Startup: []string{"alpha", "beta"}}, 100, 30, tile("alpha"), tile("beta"))
+	a := newHomeApp(t, &config.Config{Startup: []string{"alpha", "beta"}}, 100, 40, tile("alpha"), tile("beta"))
 	keys(a, "ctrl+g", "1", "2", "7")
 	if got := model(t, a, "alpha").keys; fmt.Sprint(got) != "[2 7]" || len(a.tabs) != 2 {
 		t.Fatalf("digits in a tab go to the plugin, got %v (tabs %d)", got, len(a.tabs))
@@ -390,12 +461,12 @@ func TestDigitsInsideTabReachPlugin(t *testing.T) {
 }
 
 func TestNumbersStableWhileHomeOpen(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 30, tile("alpha"), tile("beta"), tile("gamma"))
+	a := newHomeApp(t, nil, 100, 40, tile("alpha"), tile("beta"), tile("gamma"))
 	cfg, _ := config.Load()
 	cfg.SetEnabled("alpha", false)
 	cfg.Save()
 	run(a, a.reload(""))
-	v := frameAt(t, a, 100, 30)
+	v := frameAt(t, a, 100, 40)
 	if strings.Contains(v, "alpha") || !strings.Contains(v, "[2] beta") || !strings.Contains(v, "[3] gamma") {
 		t.Fatalf("numbers stay put while home is open:\n%s", v)
 	}

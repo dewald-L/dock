@@ -213,7 +213,7 @@ func (a *App) renderStatus() string {
 	case a.overlay == ovPalette:
 		left = a.st.muted.Render(" ↑/↓ select · enter run · esc close")
 	case len(a.tabs) == 0:
-		left = a.st.muted.Render(" 1-9/enter open · hjkl move · : palette · m plugins · q quit")
+		left = a.st.muted.Render(" 1-9/enter open · j/k move · : palette · m plugins · q quit")
 	default:
 		if in := a.focused(); in != nil {
 			var hs []string
@@ -228,85 +228,6 @@ func (a *App) renderStatus() string {
 	}
 	rw := ansi.StringWidth(right)
 	return fit(ansi.Truncate(left, max(a.w-rw-1, 0), "…"), a.w-rw) + right
-}
-
-// renderHome draws the home screen: a header line, then the plugin blocks
-// in a grid of 1-3 columns, scrolled so the selected block is visible.
-func (a *App) renderHome(w, h int) []string {
-	body := blank(w, h)
-	if w <= 2 || h <= 0 {
-		return body
-	}
-	entries := a.homeEntries()
-	header := a.st.muted.Render(" dock " + a.opts.Version)
-	if len(entries) == 0 {
-		body[0] = fit(header, w)
-		if h > 2 {
-			body[2] = fit(a.st.muted.Render(" No plugins enabled. Press m to manage plugins."), w)
-		}
-		return body
-	}
-
-	gw := w - 2 // one cell of margin on each side
-	cols := homeCols(w)
-	widths := split(gw, cols)
-	nrows := (len(entries) + cols - 1) / cols
-	heights := make([]int, nrows)
-	for i, he := range entries {
-		heights[i/cols] = max(heights[i/cols], a.homeBlockHeight(he.e))
-	}
-
-	// scroll: keep the selected row in view, moving as little as possible
-	avail := h - 1
-	sel := min(a.homeSel, len(entries)-1)
-	selRow := sel / cols
-	a.homeTop = min(a.homeTop, selRow)
-	for a.homeTop < selRow && sum(heights[a.homeTop:selRow+1]) > avail {
-		a.homeTop++
-	}
-	for a.homeTop > 0 && sum(heights[a.homeTop-1:]) <= avail {
-		a.homeTop-- // room for an earlier row (e.g. after a resize)
-	}
-
-	y, last := 1, a.homeTop-1
-	for r := a.homeTop; r < nrows && y < h; r++ {
-		x := 1
-		for c := 0; c < cols; c++ {
-			i := r*cols + c
-			if i >= len(entries) {
-				break
-			}
-			b := a.homeBlock(entries[i], widths[c], heights[r], i == sel)
-			body = overlay(body, b, x, y)
-			x += widths[c]
-		}
-		if y+heights[r] <= h {
-			last = r
-		}
-		y += heights[r]
-	}
-
-	var more []string
-	if a.homeTop > 0 {
-		more = append(more, "↑")
-	}
-	if last < nrows-1 {
-		more = append(more, "↓")
-	}
-	if len(more) > 0 {
-		m := a.st.muted.Render(strings.Join(more, " ") + " more ")
-		header = fit(header, max(w-ansi.StringWidth(m), 0)) + m
-	}
-	body[0] = fit(header, w)
-	return fitBlock(body, w, h)
-}
-
-func sum(xs []int) int {
-	t := 0
-	for _, x := range xs {
-		t += x
-	}
-	return t
 }
 
 func (a *App) renderPalette() []string {
@@ -357,7 +278,7 @@ func (a *App) renderHelp() []string {
 	}
 	home := [][2]string{
 		{"1-9", "open the plugin with that number"},
-		{"h j k l  arrows", "move between blocks"},
+		{"j k  arrows  g G", "move, first / last"},
 		{"enter  o", "open the selected plugin"},
 		{":  m  ?  q", "palette, plugins, help, quit"},
 	}
