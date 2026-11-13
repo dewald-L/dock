@@ -98,13 +98,7 @@ func ModulePath(dir string) (string, error) {
 }
 
 // Dir is the build workspace.
-func Dir() string {
-	d, err := os.UserCacheDir()
-	if err != nil {
-		d = os.TempDir()
-	}
-	return filepath.Join(d, "dock", "build")
-}
+func Dir() string { return filepath.Join(config.CacheDir(), "build") }
 
 // Build compiles dock with plugins into out. Progress goes to log.
 func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) error {

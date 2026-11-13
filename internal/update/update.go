@@ -157,14 +157,8 @@ type latest struct {
 	Errors  []string          `json:"errors,omitempty"`
 }
 
-// CachePath is $XDG_CACHE_HOME/dock/update.json.
-func CachePath() string {
-	d, err := os.UserCacheDir()
-	if err != nil {
-		d = os.TempDir()
-	}
-	return filepath.Join(d, "dock", "update.json")
-}
+// CachePath is update.json in config.CacheDir().
+func CachePath() string { return filepath.Join(config.CacheDir(), "update.json") }
 
 // Check asks the network for the latest versions (and caches them).
 func Check(cfg *config.Config) *Status {

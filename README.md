@@ -93,7 +93,9 @@ load after you restart dock), `r` refreshes the index, `?` shows the screen's ke
 `dock plugin search`, install by id and the Available section read
 [`plugins.json`](https://github.com/dewald-L/dock-plugins) from the
 [dock-plugins](https://github.com/dewald-L/dock-plugins) repo. dock caches it in
-`$XDG_CACHE_HOME/dock/index.json` for an hour; offline, it uses the cache whatever its
+`~/.cache/dock/index.json` (macOS: `~/Library/Caches/dock/`; `$XDG_CACHE_HOME/dock/` when
+set) for an hour, so a newly published plugin can take up to an hour to appear: press
+`r` on the Plugins screen to refresh now; offline, it uses the cache whatever its
 age and says so, e.g. `(cached, 3h)`. Point dock at another index with the config's
 `"registry"` (an https URL, a `file://` URL or a path) or the `DOCK_REGISTRY` env var,
 which overrides it. To publish a plugin, see

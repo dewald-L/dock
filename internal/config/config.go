@@ -151,6 +151,20 @@ func DataRoot() string {
 	return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "dock")
 }
 
+// CacheDir is dock's cache directory: $XDG_CACHE_HOME/dock when that is
+// set (on every OS, so tests can redirect it), else the OS's user cache
+// dir: ~/.cache/dock on Linux, ~/Library/Caches/dock on macOS.
+func CacheDir() string {
+	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
+		return filepath.Join(d, "dock")
+	}
+	d, err := os.UserCacheDir()
+	if err != nil {
+		d = os.TempDir()
+	}
+	return filepath.Join(d, "dock")
+}
+
 // BinPath is where `dock build` installs the dock binary it compiles.
 func BinPath() string { return filepath.Join(DataRoot(), "bin", "dock") }
 

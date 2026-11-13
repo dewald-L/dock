@@ -246,14 +246,8 @@ func FormatAge(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// CachePath is $XDG_CACHE_HOME/dock/index.json.
-func CachePath() string {
-	d, err := os.UserCacheDir()
-	if err != nil {
-		d = os.TempDir()
-	}
-	return filepath.Join(d, "dock", "index.json")
-}
+// CachePath is index.json in config.CacheDir().
+func CachePath() string { return filepath.Join(config.CacheDir(), "index.json") }
 
 // cacheFile is what CachePath holds: the raw index and where and when it
 // was fetched.

@@ -39,7 +39,7 @@ plugin API.
 - `internal/index/`: the plugin index (dock-plugins' `plugins.json`). `Source` is
   `DOCK_REGISTRY` > config `registry` > `DefaultURL`; local paths and `file://` are read
   directly, URLs are fetched (5 s timeout, 1 MiB cap) and cached in
-  `$XDG_CACHE_HOME/dock/index.json` for an hour, with any-age fallback when offline
+  `config.CacheDir()/index.json` for an hour, with any-age fallback when offline
   (`Result.Stale`). `"version"` above `FormatVersion` is `ErrNewerFormat` ("update
   dock"), never masked by the cache. Unknown fields are ignored. Never fetch from
   Update/View or at startup.
@@ -48,7 +48,7 @@ plugin API.
   `.dock-version` (install.sh writes it from GitHub's commit API). Latest = main's sha
   (`Accept: application/vnd.github.sha`) and `go list -m mod@latest` for unpinned,
   non-local plugins, whose current version comes from the build info of
-  `config.BinPath()`. Only latest versions are cached (`$XDG_CACHE_HOME/dock/update.json`,
+  `config.BinPath()`. Only latest versions are cached (`config.CacheDir()/update.json`,
   24 h); installed versions are read fresh. `ReplaceSource` swaps in the new tree and
   keeps `.old` until `Commit`/`Restore`. `DOCK_UPDATE_SERVER` replaces both GitHub hosts
   (tests); `DOCK_NO_UPDATE_CHECK` or config `update_check: false` turns the background
@@ -102,7 +102,8 @@ home_test.go covers the home grid, number keys and summary fetching) and `go vet
 The fake runtime drops commands slower than 50 ms, so home tests use `newHomeApp`, which
 shortens the summary timeout.
 Never test against the real config or the real index. Set `DOCK_CONFIG_DIR`,
-`DOCK_DATA_DIR` and `XDG_CACHE_HOME` (the build dir and index cache) to temp dirs, and
+`DOCK_DATA_DIR` and `XDG_CACHE_HOME` (the build dir and caches; `config.CacheDir` honours
+it on macOS too, unlike `os.UserCacheDir`) to temp dirs, and
 `DOCK_REGISTRY` to a fixture file or an `httptest` server. Update tests set
 `DOCK_UPDATE_SERVER` to a fake GitHub; e2e sandboxes set `DOCK_NO_UPDATE_CHECK=1`
 except the update scenario.
