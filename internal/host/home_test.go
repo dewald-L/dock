@@ -324,57 +324,66 @@ func TestHomeModalCentred(t *testing.T) {
 		if d := top - bottom; d < -1 || d > 1 {
 			t.Errorf("%dx%d: top margin %d, bottom %d:\n%s", sz.w, sz.h, top, bottom, v)
 		}
-		if w := x1 - x0 + 1; w != homeModalWidth {
-			t.Errorf("%dx%d: modal %d wide, want %d", sz.w, sz.h, w, homeModalWidth)
-		}
 		if !strings.Contains(v, "today 1h15") || !strings.Contains(v, "native · tile") || !strings.Contains(v, homeKeyHint) {
 			t.Errorf("entries show summaries and kind hints, the modal its keys:\n%s", v)
 		}
 	}
 	// narrow: the modal takes the width minus a 2-column margin each side
 	a := newHomeApp(t, nil, 60, 20, manyPlugins(2)...)
-	if x0, x1, _, _ := modalBounds(t, frameAt(t, a, 60, 20)); x0 != 2 || x1 != 57 {
-		t.Errorf("60 wide: modal spans %d..%d, want 2..57", x0, x1)
+	if x0, x1, _, _ := modalBounds(t, frameAt(t, a, 60, 20)); x0 < 2 || x1 > 57 {
+		t.Errorf("60 wide: modal spans %d..%d, want within 2..57", x0, x1)
 	}
 }
 
-func TestHomeVerticalList(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...)
+func TestHomeGridOfSquareTiles(t *testing.T) {
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins
 	v := frameAt(t, a, 100, 40)
-	row := map[string]int{}
-	for y, l := range strings.Split(v, "\n") {
-		if n := strings.Count(l, "╭─ ["); n > 1 {
-			t.Fatalf("one entry per row, got %d on %q", n, l)
-		}
+	ls := strings.Split(v, "\n")
+	row, col := map[string]int{}, map[string]int{}
+	for y, l := range ls {
 		for _, k := range []string{"[1] p01", "[2] p02", "[3] p03", "[4] Plugins"} {
-			if strings.Contains(l, k) {
-				row[k] = y
+			if i := strings.Index(l, k); i >= 0 {
+				row[k], col[k] = y, len([]rune(l[:i]))
 			}
 		}
 	}
-	if !(row["[1] p01"] < row["[2] p02"] && row["[2] p02"] < row["[3] p03"] && row["[3] p03"] < row["[4] Plugins"]) {
-		t.Fatalf("entries stack top to bottom: %v\n%s", row, v)
+	if row["[1] p01"] != row["[2] p02"] || row["[2] p02"] != row["[3] p03"] || col["[1] p01"] >= col["[2] p02"] || col["[2] p02"] >= col["[3] p03"] {
+		t.Fatalf("tiles fill a row left to right: %v %v\n%s", row, col, v)
+	}
+	if row["[4] Plugins"] <= row["[1] p01"] || col["[4] Plugins"] != col["[1] p01"] {
+		t.Fatalf("the fourth tile starts the next row:\n%s", v)
+	}
+	// square: a tile is twice as wide as it is tall (cells are ~2:1)
+	b := block(t, v, "[1] p01")
+	bl := strings.Split(b, "\n")
+	if w := len([]rune(bl[0])); w != 2*len(bl) {
+		t.Fatalf("tile is %d wide, %d tall:\n%s", w, len(bl), b)
 	}
 }
 
 func TestHomeKeys(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins: 3 columns
+	frameAt(t, a, 100, 40)
+	if cols := a.homeCols; cols != 3 {
+		t.Fatalf("100 wide fits 3 columns, got %d", cols)
+	}
 	moves := []struct {
 		key  string
 		want int
-	}{{"j", 1}, {"l", 1}, {"right", 1}, {"h", 1}, {"left", 1}, {"j", 2}, {"j", 3}, {"j", 3}, {"k", 2}, {"g", 0}, {"k", 0}, {"G", 3}, {"up", 2}, {"down", 3}}
+	}{{"l", 1}, {"right", 2}, {"l", 3}, {"l", 3}, {"h", 2}, {"left", 1}, {"j", 3}, {"j", 3}, {"k", 0}, {"k", 0}, {"j", 3}, {"g", 0}, {"G", 3}, {"up", 0}, {"down", 3}}
 	for i, m := range moves {
 		keys(a, m.key)
 		if a.homeSel != m.want {
 			t.Fatalf("move %d (%s): sel=%d, want %d", i, m.key, a.homeSel, m.want)
 		}
 	}
-	keys(a, "k", "k", "enter") // sel 1 = p02
-	if a.findByPlugin("p02") == nil {
+	keys(a, "l")                    // stays on the last tile
+	keys(a, "h", "h", "h", "enter") // sel 0 = p01
+	if a.findByPlugin("p01") == nil {
 		t.Fatal("enter opens the selected entry")
 	}
-	keys(a, "ctrl+g", "x", "k", "o") // back home; sel 0 = p01
-	if a.findByPlugin("p01") == nil {
+	keys(a, "ctrl+g", "x", "l", "o") // back home; sel 1 = p02
+	if a.findByPlugin("p02") == nil {
 		t.Fatal("o opens the selected entry")
 	}
 }

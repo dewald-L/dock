@@ -291,24 +291,26 @@ Both exist before `New` is called.
 
 ## 10. Home screen summaries
 
-dock's home screen (shown while no tab is open) is a centred panel with a vertical
-list of entries, one per plugin: `[1] Name` in the title, the description, and the kind
-at the bottom. A plugin can add a few lines of live status to its entry, so the home
+dock's home screen (shown while no tab is open) is a centred panel with a grid of
+square tiles, one per plugin: `[1] Name` in the title, the description, and the kind
+at the bottom. Text wraps inside the tile and is cut with `…` when it is too long. A plugin can add a few lines of live status to its entry, so the home
 screen works as a dashboard:
 
 ```
-╭─ dock ───────────────────────────────── 0.2.0 ─╮
-│                                                │
-│ ╭─ [1] lazysheet ──────────────────────── ● ─╮ │
-│ │ Timesheets: log, browse, edit and total o… │ │
-│ │ Today 8h15 · this week 18h15 / 40h         │ │
-│ │ Mo█ Tu▆ We█ Th· Fr· Sa· Su·                │ │
-│ ╰──────────────────────────── native · full ─╯ │
-│ ╭─ [2] Scratch ──────────────────────────────╮ │
-│ │ A notepad that saves itself                │ │
-│ ╰──────────────────────────── native · tile ─╯ │
-│                                                │
-╰───────────────── 1-9 open · j/k move · ? help ─╯
+╭─ dock ───────────────────────────────────────── 0.2.0 ─╮
+│                                                        │
+│ ╭─ [1] lazysheet ──────╮ ╭─ [2] Scratch ────────╮      │
+│ │ Timesheets: log,     │ │ A notepad that saves │      │
+│ │ browse, edit and     │ │ itself               │      │
+│ │ total hours          │ │                      │      │
+│ │                      │ │                      │      │
+│ │ Today 8h15 · this    │ │                      │      │
+│ │ week 18h15 / 40h     │ │                      │      │
+│ │ Mo█ Tu▆ We█ Th· Fr·  │ │                      │      │
+│ │                      │ │                      │      │
+│ ╰────── native · full ─╯ ╰────── native · tile ─╯      │
+│                                                        │
+╰───────────────────────── 1-9 open · hjkl move · ? help ─╯
 ```
 
 **When to implement one:** when there is one or two numbers worth seeing without
@@ -359,8 +361,8 @@ shown. Set it with `dock plugin add --summary 'df -h --output=avail,pcent / | ta
 environment plus `DOCK_SUMMARY=1`, runs under the same 2 second timeout, and a
 non-zero exit shows the first line of stderr.
 
-Home screen keys: `1`–`9` open the plugin with that number, `j`/`k` (or arrows)
-move, `enter`/`o` open the selected one. Numbers follow the plugin
+Home screen keys: `1`–`9` open the plugin with that number, `h`/`j`/`k`/`l` (or arrows)
+move around the grid, `enter`/`o` open the selected one. Numbers follow the plugin
 order (built-in plugins last), stay fixed while the home screen is open, and stop at
 9. These keys only exist on the home screen: inside a tab, digits go to the plugin
 as usual.

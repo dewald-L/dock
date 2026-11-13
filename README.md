@@ -110,17 +110,17 @@ dock lazy1on1        # start with plugins already open, one tab each
 
 ### Home screen
 
-While no tab is open, dock shows a centred panel with a vertical list of numbered,
-bordered plugin entries. Each entry has the plugin's description, its kind and, for
+While no tab is open, dock shows a centred panel with a grid of numbered, square
+tiles, one per plugin. Each tile has the plugin's description, its kind and, for
 plugins that provide one, a live summary such as today's hours or open action items.
-The list scrolls inside the panel when it doesn't fit; on very small terminals it
+The grid scrolls by row inside the panel when it doesn't fit; on very small terminals it
 becomes a plain one-line-per-plugin list. Summaries refresh every 30 seconds while the
 home screen is visible; a slow or broken plugin only affects its own entry.
 
 | Keys | Action |
 |---|---|
 | `1`–`9` | open the plugin with that number |
-| `j k`, arrows | move (`g`/`G` first/last) |
+| `h j k l`, arrows | move around the grid (`g`/`G` first/last) |
 | `enter`, `o` | open the selected plugin |
 | `:` or `p` | command palette |
 | `m` | manage plugins |
