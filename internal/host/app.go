@@ -79,13 +79,12 @@ type App struct {
 	active    int
 	lastFocus int
 
-	w, h     int
-	leader   bool
-	overlay  overlayKind
-	pal      palette
-	homeSel  int
-	homeTop  int // first grid row shown on the home screen
-	homeCols int // columns in the home grid as last drawn
+	w, h    int
+	leader  bool
+	overlay overlayKind
+	pal     palette
+	homeSel int
+	homeTop int // first grid row shown on the home screen
 
 	// home screen summaries (summary.go)
 	homeOn     bool     // the home screen is showing

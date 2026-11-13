@@ -262,35 +262,6 @@ func manyPlugins(n int) []plugin.Plugin {
 	return ps
 }
 
-// modalBounds finds the modal's border in the content rows of a frame:
-// its left and right columns and its top and bottom rows.
-func modalBounds(t *testing.T, v string) (x0, x1, y0, y1 int) {
-	t.Helper()
-	ls := strings.Split(v, "\n")
-	y0 = -1
-	for y, l := range ls {
-		if i := strings.Index(l, "╭─ dock "); i >= 0 && y0 < 0 {
-			r := []rune(l)
-			x0 = len([]rune(l[:i]))
-			x1 = x0
-			for x1+1 < len(r) && r[x1] != '╮' || x1 == x0 {
-				x1++
-			}
-			y0 = y
-		}
-	}
-	if y0 < 0 {
-		t.Fatalf("no modal in:\n%s", v)
-	}
-	for y := y0 + 1; y < len(ls); y++ {
-		if r := []rune(ls[y]); x0 < len(r) && r[x0] == '╰' {
-			y1 = y
-			break
-		}
-	}
-	return
-}
-
 func TestHomeFits(t *testing.T) {
 	for _, sz := range []struct{ w, h int }{{60, 20}, {90, 24}, {160, 45}, {40, 10}, {20, 5}} {
 		t.Run(fmt.Sprintf("%dx%d", sz.w, sz.h), func(t *testing.T) {
@@ -311,79 +282,60 @@ func TestHomeFits(t *testing.T) {
 	}
 }
 
-func TestHomeModalCentred(t *testing.T) {
-	for _, sz := range []struct{ w, h int }{{90, 24}, {160, 45}} {
+func TestHomeBlocksFillWidth(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{90, 24}, {160, 45}, {60, 20}} {
 		a := newHomeApp(t, nil, sz.w, sz.h, manyPlugins(2)...)
 		v := frameAt(t, a, sz.w, sz.h)
-		x0, x1, y0, y1 := modalBounds(t, v)
-		left, right := x0, sz.w-1-x1
-		top, bottom := y0-1, (sz.h-2)-y1 // content rows are 1..h-2
-		if d := left - right; d < -1 || d > 1 {
-			t.Errorf("%dx%d: left margin %d, right %d:\n%s", sz.w, sz.h, left, right, v)
-		}
-		if d := top - bottom; d < -1 || d > 1 {
-			t.Errorf("%dx%d: top margin %d, bottom %d:\n%s", sz.w, sz.h, top, bottom, v)
+		b := strings.Split(block(t, v, "[1] p01"), "\n")
+		if w := len([]rune(b[0])); w != sz.w-2 {
+			t.Errorf("%dx%d: block %d wide, want %d", sz.w, sz.h, w, sz.w-2)
 		}
 		if !strings.Contains(v, "today 1h15") || !strings.Contains(v, "native · tile") || !strings.Contains(v, homeKeyHint) {
-			t.Errorf("entries show summaries and kind hints, the modal its keys:\n%s", v)
+			t.Errorf("entries show summaries and kind hints, the footer its keys:\n%s", v)
 		}
-	}
-	// narrow: the modal takes the width minus a 2-column margin each side
-	a := newHomeApp(t, nil, 60, 20, manyPlugins(2)...)
-	if x0, x1, _, _ := modalBounds(t, frameAt(t, a, 60, 20)); x0 < 2 || x1 > 57 {
-		t.Errorf("60 wide: modal spans %d..%d, want within 2..57", x0, x1)
+		if strings.Contains(v, "╭─ dock ") {
+			t.Errorf("no modal frame expected:\n%s", v)
+		}
 	}
 }
 
-func TestHomeGridOfSquareTiles(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins
+func TestHomeVerticalList(t *testing.T) {
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...)
 	v := frameAt(t, a, 100, 40)
-	ls := strings.Split(v, "\n")
-	row, col := map[string]int{}, map[string]int{}
-	for y, l := range ls {
+	row := map[string]int{}
+	for y, l := range strings.Split(v, "\n") {
+		if n := strings.Count(l, "╭─ ["); n > 1 {
+			t.Fatalf("one entry per row, got %d on %q", n, l)
+		}
 		for _, k := range []string{"[1] p01", "[2] p02", "[3] p03", "[4] Plugins"} {
-			if i := strings.Index(l, k); i >= 0 {
-				row[k], col[k] = y, len([]rune(l[:i]))
+			if strings.Contains(l, k) {
+				row[k] = y
 			}
 		}
 	}
-	if row["[1] p01"] != row["[2] p02"] || row["[2] p02"] != row["[3] p03"] || col["[1] p01"] >= col["[2] p02"] || col["[2] p02"] >= col["[3] p03"] {
-		t.Fatalf("tiles fill a row left to right: %v %v\n%s", row, col, v)
-	}
-	if row["[4] Plugins"] <= row["[1] p01"] || col["[4] Plugins"] != col["[1] p01"] {
-		t.Fatalf("the fourth tile starts the next row:\n%s", v)
-	}
-	// square: a tile is twice as wide as it is tall (cells are ~2:1)
-	b := block(t, v, "[1] p01")
-	bl := strings.Split(b, "\n")
-	if w := len([]rune(bl[0])); w != 2*len(bl) {
-		t.Fatalf("tile is %d wide, %d tall:\n%s", w, len(bl), b)
+	if !(row["[1] p01"] < row["[2] p02"] && row["[2] p02"] < row["[3] p03"] && row["[3] p03"] < row["[4] Plugins"]) {
+		t.Fatalf("entries stack top to bottom: %v\n%s", row, v)
 	}
 }
 
 func TestHomeKeys(t *testing.T) {
-	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins: 3 columns
-	frameAt(t, a, 100, 40)
-	if cols := a.homeCols; cols != 3 {
-		t.Fatalf("100 wide fits 3 columns, got %d", cols)
-	}
+	a := newHomeApp(t, nil, 100, 40, manyPlugins(3)...) // p01..p03 then Plugins
 	moves := []struct {
 		key  string
 		want int
-	}{{"l", 1}, {"right", 2}, {"l", 3}, {"l", 3}, {"h", 2}, {"left", 1}, {"j", 3}, {"j", 3}, {"k", 0}, {"k", 0}, {"j", 3}, {"g", 0}, {"G", 3}, {"up", 0}, {"down", 3}}
+	}{{"j", 1}, {"l", 1}, {"right", 1}, {"h", 1}, {"left", 1}, {"j", 2}, {"j", 3}, {"j", 3}, {"k", 2}, {"g", 0}, {"k", 0}, {"G", 3}, {"up", 2}, {"down", 3}}
 	for i, m := range moves {
 		keys(a, m.key)
 		if a.homeSel != m.want {
 			t.Fatalf("move %d (%s): sel=%d, want %d", i, m.key, a.homeSel, m.want)
 		}
 	}
-	keys(a, "l")                    // stays on the last tile
-	keys(a, "h", "h", "h", "enter") // sel 0 = p01
-	if a.findByPlugin("p01") == nil {
+	keys(a, "k", "k", "enter") // sel 1 = p02
+	if a.findByPlugin("p02") == nil {
 		t.Fatal("enter opens the selected entry")
 	}
-	keys(a, "ctrl+g", "x", "l", "o") // back home; sel 1 = p02
-	if a.findByPlugin("p02") == nil {
+	keys(a, "ctrl+g", "x", "k", "o") // back home; sel 0 = p01
+	if a.findByPlugin("p01") == nil {
 		t.Fatal("o opens the selected entry")
 	}
 }
@@ -392,15 +344,12 @@ func TestHomeScrollsToSelection(t *testing.T) {
 	a := newHomeApp(t, nil, 60, 20, manyPlugins(10)...)
 	v := frameAt(t, a, 60, 20)
 	if !strings.Contains(v, "↓ more") || strings.Contains(v, "↑ more") || strings.Contains(v, " Plugins ") {
-		t.Fatalf("a long list scrolls inside the modal:\n%s", v)
+		t.Fatalf("a long list scrolls:\n%s", v)
 	}
 	keys(a, "G")
 	v = frameAt(t, a, 60, 20)
 	if !strings.Contains(v, " Plugins ") || !strings.Contains(v, "↑ more") || strings.Contains(v, "[1] p01") {
 		t.Fatalf("G brings the last entry into view:\n%s", v)
-	}
-	if _, _, _, y1 := modalBounds(t, v); !strings.Contains(strings.Split(v, "\n")[y1], "↑ more") {
-		t.Fatalf("the more marker is on the modal's bottom border:\n%s", v)
 	}
 	keys(a, "g")
 	if v = frameAt(t, a, 60, 20); !strings.Contains(v, "[1] p01") || strings.Contains(v, "↑ more") {

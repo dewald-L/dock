@@ -12,17 +12,13 @@ import (
 	"github.com/dewald-L/dock/plugin"
 )
 
-// The home screen (shown while no tab is open) is a centred modal holding
-// a grid of square tiles, one per plugin. Numbers 1-9 are fixed when
-// the home screen appears and stay stable while it is open.
+// The home screen (shown while no tab is open) is a full-width vertical
+// list of numbered plugin entries. Numbers 1-9 are fixed when the home screen
+// appears and stay stable while it is open.
 
 const (
 	maxHomeNumber = 9
-	homeTileH     = 12 // preferred tile height; terminal cells are ~2:1, so the width is twice this
-	homeMinTileH  = 8
-	homeTileGap   = 1
-	homeMinModalW = 48 // room for the version / update label
-	homeKeyHint   = "1-9 open · hjkl move · ? help"
+	homeKeyHint   = "1-9 open · j/k move · ? help"
 )
 
 type homeEntry struct {
@@ -72,7 +68,6 @@ func (a *App) homeKey(s string) tea.Cmd {
 	entries := a.homeEntries()
 	n := len(entries)
 	sel := min(a.homeSel, max(n-1, 0))
-	cols := max(a.homeCols, 1)
 	switch s {
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		want := int(s[0] - '0')
@@ -83,20 +78,10 @@ func (a *App) homeKey(s string) tea.Cmd {
 			}
 		}
 		return nil
-	case "left", "h":
-		sel = max(sel-1, 0)
-	case "right", "l":
-		sel = min(sel+1, max(n-1, 0))
 	case "up", "k":
-		if sel-cols >= 0 {
-			sel -= cols
-		}
+		sel = max(sel-1, 0)
 	case "down", "j":
-		if sel+cols < n {
-			sel += cols
-		} else if sel/cols < (n-1)/cols {
-			sel = n - 1 // last row is short: land on its last tile
-		}
+		sel = min(sel+1, max(n-1, 0))
 	case "home", "g":
 		sel = 0
 	case "end", "G":
@@ -120,8 +105,8 @@ func (a *App) homeKey(s string) tea.Cmd {
 
 // ---- rendering ----
 
-// renderHome draws the home screen into a w x h area: the modal centred,
-// or a plain one-line-per-plugin list when the area is too small for it.
+// renderHome draws the home screen into a w x h area: a header, full-width
+// entries and a footer, or a plain one-line-per-plugin list when the area is too small for it.
 func (a *App) renderHome(w, h int) []string {
 	body := blank(w, h)
 	if w <= 0 || h <= 0 {
@@ -130,88 +115,62 @@ func (a *App) renderHome(w, h int) []string {
 	entries := a.homeEntries()
 	n := len(entries)
 	sel := min(a.homeSel, max(n-1, 0))
-
-	// Tiles are square: cells are about twice as tall as wide, so a tile is
-	// twice as wide as it is high.
-	aw := w - 4 // modal width limit: a 2-column margin each side
-	maxH := h - 2
-	pad := 1
-	gridH := maxH - 2 - 2*pad
-	if gridH < homeMinTileH {
-		pad = 0
-		gridH = maxH - 2
+	heights := make([]int, n)
+	tallest := 1
+	for i, he := range entries {
+		heights[i] = a.homeBlockHeight(he.e)
+		tallest = max(tallest, heights[i])
 	}
-	th := min(homeTileH, gridH, (aw-4)/2)
-	if w < 40 || th < homeMinTileH {
+
+	bw := w - 2    // blocks fill the width, one column of margin each side
+	listH := h - 2 // a header row above and a footer row below
+	if w < 40 || listH < tallest {
 		return a.renderHomeList(w, h, entries, sel)
 	}
-	tw := 2 * th
-	cols := max(1, min(max(n, 1), (aw-4+homeTileGap)/(tw+homeTileGap)))
-	a.homeCols = cols
-	totalRows := (n + cols - 1) / cols
-	visRows := max(1, min(max(totalRows, 1), gridH/th))
-	gridW := cols*tw + (cols-1)*homeTileGap
-	mw := max(gridW+4, homeMinModalW)
-	lpad := (mw - 4 - gridW) / 2 // centre a narrow grid in the modal
 
-	// scroll by rows: keep the selection's row in view, moving as little as possible
-	selRow := sel / cols
-	a.homeTop = min(a.homeTop, selRow)
-	if selRow >= a.homeTop+visRows {
-		a.homeTop = selRow - visRows + 1
+	// scroll: keep the selection in view, moving as little as possible
+	a.homeTop = min(a.homeTop, sel)
+	for a.homeTop < sel && sum(heights[a.homeTop:sel+1]) > listH {
+		a.homeTop++
 	}
-	a.homeTop = max(min(a.homeTop, max(totalRows-visRows, 0)), 0)
+	for a.homeTop > 0 && sum(heights[a.homeTop-1:]) <= listH {
+		a.homeTop-- // room for an earlier entry (e.g. after a resize)
+	}
 
 	var inner []string
+	last := a.homeTop - 1
+	for i := a.homeTop; i < n && len(inner)+heights[i] <= listH; i++ {
+		inner = append(inner, a.homeBlock(entries[i], bw, heights[i], i == sel)...)
+		last = i
+	}
 	if n == 0 {
 		inner = []string{a.st.muted.Render("No plugins enabled. Press m to manage plugins.")}
-	}
-	for r := a.homeTop; r < min(a.homeTop+visRows, totalRows); r++ {
-		var tiles [][]string
-		for c := range cols {
-			i := r*cols + c
-			if i < n {
-				tiles = append(tiles, a.homeBlock(entries[i], tw, th, i == sel))
-			} else {
-				tiles = append(tiles, blank(tw, th))
-			}
-		}
-		for y := range th {
-			row := make([]string, cols)
-			for c := range cols {
-				row[c] = tiles[c][y]
-			}
-			inner = append(inner, strings.Join(row, strings.Repeat(" ", homeTileGap)))
-		}
 	}
 
 	var more []string
 	if a.homeTop > 0 {
 		more = append(more, "↑ more")
 	}
-	if a.homeTop+visRows < totalRows {
+	if last < n-1 {
 		more = append(more, "↓ more")
 	}
-	bs := a.st.border
-	side := bs.Render("│")
-	padRow := side + strings.Repeat(" ", mw-2) + side
-	ver := label{a.opts.Version, a.st.muted}
+	header := a.st.brand.Render("dock") + " " + a.st.muted.Render(a.opts.Version)
 	if a.updates != "" {
-		ver = label{a.opts.Version + " · update available", a.st.accent}
+		header += a.st.accent.Render(" · update available")
 	}
-	lines := []string{borderLine("╭", "╮", label{"dock", a.st.brand}, ver, mw, bs)}
-	for range pad {
-		lines = append(lines, padRow)
-	}
+	footer := a.st.muted.Render(strings.Join(more, " · "))
+	hint := a.st.muted.Render(homeKeyHint)
+	footer = fit(footer, max(bw-ansi.StringWidth(homeKeyHint), 0)) + hint
+
+	lines := []string{" " + header}
 	for _, l := range inner {
-		l = strings.Repeat(" ", lpad) + l
-		lines = append(lines, side+" "+fit(l, mw-4)+" "+side)
+		lines = append(lines, " "+l)
 	}
-	for range pad {
-		lines = append(lines, padRow)
+	for len(lines) < h-1 {
+		lines = append(lines, "")
 	}
-	lines = append(lines, borderLine("╰", "╯", label{strings.Join(more, " · "), a.st.muted}, label{homeKeyHint, a.st.muted}, mw, bs))
-	return overlay(body, lines, (w-mw)/2, (h-len(lines))/2)
+	lines = append(lines, " "+footer)
+	return fitBlock(lines, w, h)
 }
 
 // renderHomeList is the fallback for tiny terminals: one line per plugin,
@@ -279,33 +238,21 @@ func (a *App) homeBlock(he homeEntry, w, h int, selected bool) []string {
 	if he.num > 0 {
 		title = fmt.Sprintf("[%d] %s", he.num, title)
 	}
-	iw := max(w-4, 1)
-	wrap := func(text string, st lipgloss.Style) []string {
-		var out []string
-		for _, l := range strings.Split(ansi.Wrap(text, iw, ""), "\n") {
-			out = append(out, st.Render(l))
-		}
-		return out
-	}
-	inner := wrap(e.Manifest.Description, a.st.muted)
+	inner := []string{a.st.muted.Render(e.Manifest.Description)}
 	var mark label
 	if a.summarizer(e) != nil {
 		st := a.sums[e.Manifest.ID]
 		switch {
 		case st != nil && st.ok:
-			inner = append(inner, "")
-			for _, l := range st.sum.Lines {
-				inner = append(inner, wrap(l, lipgloss.NewStyle())...)
-			}
+			inner = append(inner, st.sum.Lines...)
 			if st.err != "" {
-				inner = append(inner, wrap("refresh failed: "+st.err, a.st.muted)...)
+				inner = append(inner, a.st.muted.Render("refresh failed: "+st.err))
 			}
 			mark = a.levelMark(st.sum.Level)
 		case st != nil && st.err != "":
-			inner = append(inner, "")
-			inner = append(inner, wrap("summary unavailable: "+st.err, a.st.muted)...)
+			inner = append(inner, a.st.muted.Render("summary unavailable: "+st.err))
 		default:
-			inner = append(inner, "", a.st.muted.Render("…"))
+			inner = append(inner, a.st.muted.Render("…"))
 		}
 	}
 	return a.block(title, mark, kindHint(e), inner, w, h, selected)
@@ -326,6 +273,24 @@ func (a *App) levelMark(l plugin.Level) label {
 	return label{"●", lipgloss.NewStyle().Foreground(c)}
 }
 
+// homeBlockHeight is the outer height e's entry wants.
+func (a *App) homeBlockHeight(e *registry.Entry) int {
+	n := 1 // description
+	if a.summarizer(e) != nil {
+		st := a.sums[e.Manifest.ID]
+		switch {
+		case st != nil && st.ok:
+			n += len(st.sum.Lines)
+			if st.err != "" {
+				n++
+			}
+		default:
+			n++ // "…" or the error
+		}
+	}
+	return n + 2
+}
+
 // block draws a rounded box with a title on the top border, an optional
 // mark at the top right and a footer at the bottom right. Inner lines get
 // one cell of padding on each side and are truncated with "…".
@@ -340,9 +305,6 @@ func (a *App) block(title string, mark label, footer string, inner []string, w, 
 	}
 	out := []string{borderLine("╭", "╮", label{title, ts}, mark, w, bs)}
 	side := bs.Render("│")
-	if len(inner) > h-2 {
-		inner = append(inner[:h-3:h-3], a.st.muted.Render("…"))
-	}
 	for _, l := range fitBlock(truncLines(inner, w-4), w-4, h-2) {
 		out = append(out, side+" "+l+" "+side)
 	}
