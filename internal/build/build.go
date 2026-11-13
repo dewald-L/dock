@@ -6,6 +6,7 @@ package build
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -132,13 +133,38 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 		return err
 	}
 
-	run := func(args ...string) error {
+	output := func(args ...string) ([]byte, error) {
 		c := exec.Command(goBin, args...)
 		c.Dir = dir
 		c.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off")
-		b, err := c.CombinedOutput()
+		var stderr strings.Builder
+		c.Stderr = &stderr
+		b, err := c.Output()
 		if err != nil {
-			return fmt.Errorf("go %s: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(b)))
+			msg := strings.TrimSpace(stderr.String() + "\n" + string(b))
+			return nil, fmt.Errorf("go %s: %v\n%s", strings.Join(args, " "), err, msg)
+		}
+		return b, nil
+	}
+	run := func(args ...string) error {
+		_, err := output(args...)
+		return err
+	}
+	// Go only applies the main module's replace directives, so the build
+	// module copies dock's (GitHub mirrors of golang.org/x, for networks
+	// where the Go proxy refuses those) and local plugins'. The first
+	// module to replace a path wins; dock and local plugins are already
+	// replaced by their checkouts.
+	replaced := map[string]bool{DockModule: true}
+	copyReplaces := func(gomod string) error {
+		b, err := output("mod", "edit", "-json", gomod)
+		if err != nil {
+			return err
+		}
+		for _, arg := range replaceArgs(b, filepath.Dir(gomod), replaced) {
+			if err := run("mod", "edit", arg); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -156,12 +182,28 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 		if err := local(DockModule, dock.Path); err != nil {
 			return err
 		}
+		if err := copyReplaces(filepath.Join(dock.Path, "go.mod")); err != nil {
+			return err
+		}
 	} else {
 		v := dock.Version
 		if v == "" {
 			v = "latest"
 		}
 		fmt.Fprintf(log, "dock: %s@%s\n", DockModule, v)
+		// fetch dock's go.mod alone first: its replaces must be in place
+		// before its dependencies are resolved
+		b, err := output("mod", "download", "-json", DockModule+"@"+v)
+		if err != nil {
+			return err
+		}
+		var dl struct{ GoMod string }
+		if err := json.Unmarshal(b, &dl); err != nil || dl.GoMod == "" {
+			return fmt.Errorf("go mod download %s@%s: no go.mod (%v)", DockModule, v, err)
+		}
+		if err := copyReplaces(dl.GoMod); err != nil {
+			return err
+		}
 		if err := run("get", DockModule+"@"+v); err != nil {
 			return err
 		}
@@ -182,6 +224,10 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 				continue // part of dock, already provided
 			}
 			if err := local(mod, p.Path); err != nil {
+				return err
+			}
+			replaced[mod] = true
+			if err := copyReplaces(filepath.Join(p.Path, "go.mod")); err != nil {
 				return err
 			}
 			continue
@@ -213,4 +259,37 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 		return err
 	}
 	return os.Rename(tmp, out) // atomic, safe while the old binary runs
+}
+
+// replaceArgs turns the replace directives in a `go mod edit -json` dump
+// into `go mod edit` arguments for the build module. Directory targets are
+// made absolute against dir (the go.mod's directory). Paths already in
+// replaced are skipped; the rest are added to it.
+func replaceArgs(modJSON []byte, dir string, replaced map[string]bool) []string {
+	type modVer struct{ Path, Version string }
+	var mf struct {
+		Replace []struct{ Old, New modVer }
+	}
+	if json.Unmarshal(modJSON, &mf) != nil {
+		return nil
+	}
+	var args []string
+	for _, r := range mf.Replace {
+		if replaced[r.Old.Path] {
+			continue
+		}
+		replaced[r.Old.Path] = true
+		old := r.Old.Path
+		if r.Old.Version != "" {
+			old += "@" + r.Old.Version
+		}
+		target := r.New.Path
+		if r.New.Version != "" {
+			target += "@" + r.New.Version
+		} else if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		args = append(args, "-replace="+old+"="+target)
+	}
+	return args
 }

@@ -56,7 +56,10 @@ if ! go_ok; then
 	go_ok || die "Go install failed"
 fi
 GOTOOLCHAIN=auto
-export GOTOOLCHAIN
+# Fetch dock's own modules straight from GitHub: the Go proxy can serve a
+# stale @latest for a while after a push.
+GOPRIVATE="${GOPRIVATE:+$GOPRIVATE,}github.com/dewald-L/*"
+export GOTOOLCHAIN GOPRIVATE
 
 # ---- dock ----
 

@@ -34,6 +34,10 @@ plugin API.
 - `internal/registry/`: merges system, native and exec plugins. `internal/config/`: the
   JSON config and XDG paths. `internal/execplugin/`: exec env vars, result file, the
   pause wrapper and the summary command runner.
+- `go.mod`'s `replace` lines point `golang.org/x/*` at GitHub mirrors because some
+  networks get 403 from proxy.golang.org for those. Go only applies the main module's
+  replaces, so `internal/build` copies dock's (and local plugins') into the generated
+  build module (`replaceArgs`). Don't remove them.
 - **dock depends on no plugin and no other repo.** Native plugins call
   `plugin.Register` in `init()`. `internal/build` (xcaddy-style) generates
   `~/.cache/dock/build/main.go`, which blank-imports dock plus the config's `native`
@@ -45,7 +49,8 @@ plugin API.
   Go into ~/.local/go when there is no Go 1.21+, downloads the main tarball into
   ~/.local/share/dock/src/dock and builds there (`go install dock@latest` refuses
   dock's go.mod replace directives), installs plugins (default lazy1on1), links
-  ~/.local/bin/dock and edits the shell rc once. Check it with `shfmt -p` and a run
+  ~/.local/bin/dock and edits the shell rc once. It sets `GOPRIVATE=github.com/dewald-L/*` so
+  plugins' `@latest` comes from git, not a stale proxy cache. Check it with `shfmt -p` and a run
   in a sandbox HOME.
 - `cli/`: the public command line (`cli.Main`); `main.go` is just `cli.Main()`.
   `install` and `remove` restore the config if the build fails. `dock plugin packages`
