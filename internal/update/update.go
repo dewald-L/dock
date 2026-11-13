@@ -335,7 +335,7 @@ func goLatest(module string) (string, error) {
 	defer cancel()
 	c := exec.CommandContext(ctx, "go", "list", "-m", "-json", module+"@latest")
 	c.Dir = os.TempDir()
-	c.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod")
+	c.Env = build.GoEnv("go")
 	var stderr strings.Builder
 	c.Stderr = &stderr
 	out, err := c.Output()

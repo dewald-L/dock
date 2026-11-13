@@ -60,7 +60,11 @@ plugin API.
 - `go.mod`'s `replace` lines point `golang.org/x/*` at GitHub mirrors because some
   networks get 403 from proxy.golang.org for those. Go only applies the main module's
   replaces, so `internal/build` copies dock's (and local plugins') into the generated
-  build module (`replaceArgs`). Don't remove them.
+  build module (`replaceArgs`). Don't remove them. Every go command dock runs uses
+  `build.GoEnv`: `GOPROXY=https://proxy.golang.org|direct` (falls back to the source on
+  any proxy error, e.g. a work network's 403; `,direct` only does on 404/410) unless the
+  user set their own GOPROXY, and `GOPRIVATE` gains `github.com/dewald-L/*` like
+  install.sh, so installs after install.sh behave the same.
 - **dock depends on no plugin and no other repo.** Native plugins call
   `plugin.Register` in `init()`. `internal/build` (xcaddy-style) generates
   `~/.cache/dock/build/main.go`, which blank-imports dock plus the config's `native`

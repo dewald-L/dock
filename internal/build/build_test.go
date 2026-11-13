@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +27,40 @@ func TestReplaceArgs(t *testing.T) {
 	}
 	if replaceArgs([]byte("not json"), "/x", replaced) != nil {
 		t.Fatal("bad JSON gives no arguments")
+	}
+}
+
+func TestGoEnvFor(t *testing.T) {
+	cases := []struct {
+		proxy, private string
+		want           []string
+		not            []string
+	}{
+		// Go's default: fall back to direct on any proxy error
+		{DefaultGoProxy, "", []string{"GOPROXY=https://proxy.golang.org|direct", "GOPRIVATE=github.com/dewald-L/*"}, nil},
+		{"", "", []string{"GOPROXY=https://proxy.golang.org|direct"}, nil},
+		// a proxy the user chose is kept
+		{"https://goproxy.corp.example", "", nil, []string{"GOPROXY="}},
+		{"off", "", nil, []string{"GOPROXY="}},
+		// GOPRIVATE is extended, not replaced, and not duplicated
+		{DefaultGoProxy, "example.com/*", []string{"GOPRIVATE=example.com/*,github.com/dewald-L/*"}, nil},
+		{DefaultGoProxy, "github.com/dewald-L/*", nil, []string{"GOPRIVATE="}},
+		{DefaultGoProxy, "a.com/*, github.com/dewald-L/*", nil, []string{"GOPRIVATE="}},
+	}
+	for _, c := range cases {
+		got := strings.Join(goEnvFor(c.proxy, c.private), "\n")
+		if !strings.Contains(got, "GOFLAGS=-mod=mod") || !strings.Contains(got, "GOWORK=off") {
+			t.Errorf("%q %q: base vars missing:\n%s", c.proxy, c.private, got)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%q %q: want %s in:\n%s", c.proxy, c.private, w, got)
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(got, n) {
+				t.Errorf("%q %q: must not set %s:\n%s", c.proxy, c.private, n, got)
+			}
+		}
 	}
 }

@@ -127,10 +127,11 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 		return err
 	}
 
+	env := GoEnv(goBin)
 	output := func(args ...string) ([]byte, error) {
 		c := exec.Command(goBin, args...)
 		c.Dir = dir
-		c.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off")
+		c.Env = env
 		var stderr strings.Builder
 		c.Stderr = &stderr
 		b, err := c.Output()
@@ -253,6 +254,55 @@ func Build(dock Dock, plugins []config.NativePlugin, out string, log io.Writer) 
 		return err
 	}
 	return os.Rename(tmp, out) // atomic, safe while the old binary runs
+}
+
+// DefaultGoProxy is Go's own GOPROXY default.
+const DefaultGoProxy = "https://proxy.golang.org,direct"
+
+// privatePattern makes dock's own modules come straight from GitHub, as
+// install.sh does.
+const privatePattern = "github.com/dewald-L/*"
+
+// GoEnv is the environment for the go commands dock runs.
+//
+// Some networks answer 403 Forbidden from proxy.golang.org for some
+// modules (golang.org/x, and on one work network even dock plugins). With
+// Go's default GOPROXY only 404 and 410 fall back to fetching from the
+// source, so dock uses "|direct", which falls back on any proxy error. A
+// GOPROXY the user chose (env or `go env -w`) is kept. dock's own modules
+// (dewald-L) are GOPRIVATE, as install.sh sets: fetched from GitHub, so a
+// blocked or stale proxy can't break or outdate them.
+func GoEnv(goBin string) []string {
+	get := func(name string) string {
+		out, err := exec.Command(goBin, "env", name).Output()
+		if err != nil {
+			return os.Getenv(name)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	return append(os.Environ(), goEnvFor(get("GOPROXY"), get("GOPRIVATE"))...)
+}
+
+// goEnvFor returns the variables GoEnv adds, given the effective GOPROXY
+// and GOPRIVATE.
+func goEnvFor(proxy, private string) []string {
+	env := []string{"GOFLAGS=-mod=mod", "GOWORK=off"}
+	if proxy == "" || proxy == DefaultGoProxy {
+		env = append(env, "GOPROXY=https://proxy.golang.org|direct")
+	}
+	has := false
+	for _, p := range strings.Split(private, ",") {
+		if strings.TrimSpace(p) == privatePattern {
+			has = true
+		}
+	}
+	if !has {
+		if private != "" {
+			private += ","
+		}
+		env = append(env, "GOPRIVATE="+private+privatePattern)
+	}
+	return env
 }
 
 // replaceArgs turns the replace directives in a `go mod edit -json` dump
