@@ -22,7 +22,7 @@ type Config struct {
 	// Startup lists plugin IDs to open, one tab each, when dock starts
 	// without arguments.
 	Startup []string `json:"startup,omitempty"`
-	// Disabled lists plugin IDs hidden from the launcher and palette.
+	// Disabled lists plugin IDs hidden from the home screen and palette.
 	Disabled []string `json:"disabled,omitempty"`
 	// Exec lists external programs registered as plugins.
 	Exec []ExecPlugin `json:"exec,omitempty"`
@@ -71,6 +71,9 @@ type ExecPlugin struct {
 	// Pause waits for Enter after the program exits so its final output
 	// can be read before dock redraws.
 	Pause bool `json:"pause,omitempty"`
+	// Summary is an optional command whose stdout (first 3 lines) is shown
+	// in the plugin's block on the home screen.
+	Summary []string `json:"summary,omitempty"`
 }
 
 // LeaderKey returns the configured leader or the default.

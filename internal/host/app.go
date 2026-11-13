@@ -79,6 +79,15 @@ type App struct {
 	overlay overlayKind
 	pal     palette
 	homeSel int
+	homeTop int // first grid row shown on the home screen
+
+	// home screen summaries (summary.go)
+	homeOn     bool     // the home screen is showing
+	homeGen    int      // bumped whenever homeOn changes; retires old ticks
+	homeIDs    []string // plugin order (and so numbers) while it shows
+	sums       map[string]*sumState
+	sumEvery   time.Duration
+	sumTimeout time.Duration
 
 	status    string
 	statusErr bool
@@ -101,6 +110,10 @@ func New(opts Options) *App {
 		cfg:   opts.Config,
 		theme: plugin.DefaultTheme(),
 		inst:  map[int]*instance{},
+		sums:  map[string]*sumState{},
+
+		sumEvery:   summaryEvery,
+		sumTimeout: summaryTimeout,
 	}
 	a.st = newStyles(a.theme)
 	a.buildRegistry()
@@ -336,7 +349,11 @@ func (a *App) reload(note string) tea.Cmd {
 		}
 		in.entry = e
 	}
-	a.homeSel = min(a.homeSel, max(len(a.reg.Enabled())-1, 0))
+	if a.homeOn {
+		a.refreshHomeIDs()
+		cmds = append(cmds, a.fetchSummaries())
+	}
+	a.homeSel = min(a.homeSel, max(len(a.homeEntries())-1, 0))
 	if len(a.loadErrs) > 0 {
 		return tea.Batch(append(cmds, a.notify(a.loadErrs[0].Error(), true))...)
 	}
@@ -379,7 +396,7 @@ func (a *App) sync() tea.Cmd {
 		}
 		a.lastFocus = cur
 	}
-	cmds = append(cmds, a.reap())
+	cmds = append(cmds, a.reap(), a.syncHome())
 	return tea.Batch(cmds...)
 }
 

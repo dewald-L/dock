@@ -70,7 +70,7 @@ type Manifest struct {
 	// ID is stable and unique: lowercase letters, digits and dashes. It
 	// names the plugin's data and config directories, so never change it.
 	ID          string
-	Name        string // human name shown in tabs, launcher and palette
+	Name        string // human name shown in tabs, home screen and palette
 	Description string // one line
 	Version     string
 

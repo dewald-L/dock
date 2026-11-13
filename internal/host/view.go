@@ -213,7 +213,7 @@ func (a *App) renderStatus() string {
 	case a.overlay == ovPalette:
 		left = a.st.muted.Render(" ↑/↓ select · enter run · esc close")
 	case len(a.tabs) == 0:
-		left = a.st.muted.Render(" ↑/↓ select · enter open · : palette · m plugins · q quit")
+		left = a.st.muted.Render(" 1-9/enter open · hjkl move · : palette · m plugins · q quit")
 	default:
 		if in := a.focused(); in != nil {
 			var hs []string
@@ -230,27 +230,83 @@ func (a *App) renderStatus() string {
 	return fit(ansi.Truncate(left, max(a.w-rw-1, 0), "…"), a.w-rw) + right
 }
 
+// renderHome draws the home screen: a header line, then the plugin blocks
+// in a grid of 1-3 columns, scrolled so the selected block is visible.
 func (a *App) renderHome(w, h int) []string {
-	var b strings.Builder
-	b.WriteString(a.st.brand.Render("dock") + "  " + a.st.muted.Render(a.opts.Version) + "\n\n")
-	entries := a.reg.Enabled()
+	body := blank(w, h)
+	if w <= 2 || h <= 0 {
+		return body
+	}
+	entries := a.homeEntries()
+	header := a.st.muted.Render(" dock " + a.opts.Version)
 	if len(entries) == 0 {
-		b.WriteString(a.st.muted.Render("No plugins enabled. Press m to manage plugins."))
-	}
-	nameW := 0
-	for _, e := range entries {
-		nameW = max(nameW, ansi.StringWidth(e.Manifest.Name))
-	}
-	for i, e := range entries {
-		name := fmt.Sprintf("%-*s", nameW, e.Manifest.Name)
-		line := "  " + name + "  " + a.st.muted.Render(e.Manifest.Description)
-		if i == a.homeSel {
-			line = a.st.sel.Render("› "+name) + "  " + e.Manifest.Description
+		body[0] = fit(header, w)
+		if h > 2 {
+			body[2] = fit(a.st.muted.Render(" No plugins enabled. Press m to manage plugins."), w)
 		}
-		b.WriteString(line + "  " + a.st.muted.Render("["+kindHint(e)+"]") + "\n")
+		return body
 	}
-	content := lipgloss.NewStyle().Padding(1, 3).Render(b.String())
-	return fitBlock(strings.Split(content, "\n"), w, h)
+
+	gw := w - 2 // one cell of margin on each side
+	cols := homeCols(w)
+	widths := split(gw, cols)
+	nrows := (len(entries) + cols - 1) / cols
+	heights := make([]int, nrows)
+	for i, he := range entries {
+		heights[i/cols] = max(heights[i/cols], a.homeBlockHeight(he.e))
+	}
+
+	// scroll: keep the selected row in view, moving as little as possible
+	avail := h - 1
+	sel := min(a.homeSel, len(entries)-1)
+	selRow := sel / cols
+	a.homeTop = min(a.homeTop, selRow)
+	for a.homeTop < selRow && sum(heights[a.homeTop:selRow+1]) > avail {
+		a.homeTop++
+	}
+	for a.homeTop > 0 && sum(heights[a.homeTop-1:]) <= avail {
+		a.homeTop-- // room for an earlier row (e.g. after a resize)
+	}
+
+	y, last := 1, a.homeTop-1
+	for r := a.homeTop; r < nrows && y < h; r++ {
+		x := 1
+		for c := 0; c < cols; c++ {
+			i := r*cols + c
+			if i >= len(entries) {
+				break
+			}
+			b := a.homeBlock(entries[i], widths[c], heights[r], i == sel)
+			body = overlay(body, b, x, y)
+			x += widths[c]
+		}
+		if y+heights[r] <= h {
+			last = r
+		}
+		y += heights[r]
+	}
+
+	var more []string
+	if a.homeTop > 0 {
+		more = append(more, "↑")
+	}
+	if last < nrows-1 {
+		more = append(more, "↓")
+	}
+	if len(more) > 0 {
+		m := a.st.muted.Render(strings.Join(more, " ") + " more ")
+		header = fit(header, max(w-ansi.StringWidth(m), 0)) + m
+	}
+	body[0] = fit(header, w)
+	return fitBlock(body, w, h)
+}
+
+func sum(xs []int) int {
+	t := 0
+	for _, x := range xs {
+		t += x
+	}
+	return t
 }
 
 func (a *App) renderPalette() []string {
@@ -299,20 +355,50 @@ func (a *App) renderHelp() []string {
 		{lk + " " + lk, "send " + lk + " to the plugin"},
 		{lk + " q   ctrl+c", "quit dock"},
 	}
+	home := [][2]string{
+		{"1-9", "open the plugin with that number"},
+		{"h j k l  arrows", "move between blocks"},
+		{"enter  o", "open the selected plugin"},
+		{":  m  ?  q", "palette, plugins, help, quit"},
+	}
 	kw := 0
-	for _, r := range rows {
+	for _, r := range append(rows, home...) {
 		kw = max(kw, ansi.StringWidth(r[0]))
 	}
-	lines := []string{a.st.muted.Render("Every host shortcut starts with " + lk + "."), a.st.muted.Render("All other keys go to the focused plugin."), ""}
-	for _, r := range rows {
-		lines = append(lines, a.st.accent.Render(fmt.Sprintf("%-*s", kw, r[0]))+"  "+r[1])
+	row := func(r [2]string) string {
+		return a.st.accent.Render(fmt.Sprintf("%-*s", kw, r[0])) + "  " + r[1]
 	}
-	lines = append(lines, "", a.st.muted.Render("press any key to close"))
+	// optional lines go first when the terminal is too short
+	type line struct {
+		s        string
+		optional bool
+	}
+	var ls []line
+	ls = append(ls, line{a.st.muted.Render("Every host shortcut starts with " + lk + "."), true},
+		line{a.st.muted.Render("All other keys go to the focused plugin."), true}, line{"", true})
+	for _, r := range rows {
+		ls = append(ls, line{row(r), false})
+	}
+	ls = append(ls, line{"", true}, line{a.st.bold.Render("Home screen") + a.st.muted.Render(" (no tab open)"), false})
+	for _, r := range home {
+		ls = append(ls, line{row(r), false})
+	}
+	ls = append(ls, line{"", true}, line{a.st.muted.Render("press any key to close"), true})
+
+	cw, ch := a.contentSize()
+	drop := len(ls) + 2 - ch
+	var lines []string
+	for _, l := range ls {
+		if l.optional && drop > 0 {
+			drop--
+			continue
+		}
+		lines = append(lines, l.s)
+	}
 	w := 0
 	for _, l := range lines {
 		w = max(w, ansi.StringWidth(l))
 	}
-	cw, _ := a.contentSize()
 	return a.panel("Keys", lines, min(w+4, cw))
 }
 

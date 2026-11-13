@@ -24,6 +24,11 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case execDoneMsg:
 		return a.execDone(m)
+	case summaryMsg:
+		a.gotSummary(m)
+		return nil
+	case summaryTickMsg:
+		return a.onSummaryTick(m)
 	case tea.KeyMsg:
 		return a.key(m)
 	case tea.MouseMsg:
@@ -127,28 +132,4 @@ func (a *App) cycleTab(d int) {
 	if n := len(a.tabs); n > 0 {
 		a.active = (a.active + d + n) % n
 	}
-}
-
-// homeKey handles the launcher shown when no tab is open.
-func (a *App) homeKey(s string) tea.Cmd {
-	entries := a.reg.Enabled()
-	switch s {
-	case "up", "k":
-		a.homeSel = max(a.homeSel-1, 0)
-	case "down", "j":
-		a.homeSel = min(a.homeSel+1, len(entries)-1)
-	case "enter", "o":
-		if a.homeSel < len(entries) {
-			return a.open(entries[a.homeSel].Manifest.ID, false)
-		}
-	case ":", "p":
-		return a.openPalette("")
-	case "m":
-		return a.open("plugins", false)
-	case "?":
-		a.overlay = ovHelp
-	case "q":
-		return a.quit()
-	}
-	return nil
 }

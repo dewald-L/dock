@@ -190,7 +190,7 @@ func TestHomeOpenAndSize(t *testing.T) {
 	if v := checkFrame(t, a); !strings.Contains(v, "alpha") || !strings.Contains(v, "Plugins") {
 		t.Fatalf("home should list plugins:\n%s", v)
 	}
-	keys(a, "j", "enter") // entries: plugins, alpha
+	keys(a, "enter") // entries: alpha, then the built-in plugins manager
 	m := model(t, a, "alpha")
 	if m.w != W || m.h != H-2 || !m.focused {
 		t.Fatalf("alpha got %dx%d focused=%v, want %dx%d focused", m.w, m.h, m.focused, W, H-2)

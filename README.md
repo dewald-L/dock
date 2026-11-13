@@ -31,6 +31,7 @@ dock build                       # rebuild with the configured plugins
 
 # exec plugins: any program
 dock plugin add --pause --name OSheet --desc "Log timesheet entries" osheet -- osheet
+dock plugin add --name Disk --summary 'df -h --output=avail,pcent / | tail -1' disk -- ncdu /   # --summary: home screen lines
 
 dock plugin list
 dock plugin info <id>
@@ -44,9 +45,33 @@ The `Plugins` screen inside dock (`ctrl+g m`) lists, opens, enables and disables
 ## Use
 
 ```bash
-dock                 # open the launcher (or the plugins in config "startup")
+dock                 # open the home screen (or the plugins in config "startup")
 dock lazy1on1        # start with plugins already open, one tab each
 ```
+
+### Home screen
+
+While no tab is open, dock shows a grid of numbered plugin blocks (one column on narrow
+terminals, two or three when wide). Each block has the plugin's description, its kind
+and, for plugins that provide one, a live summary such as today's hours or open action
+items. Summaries refresh every 30 seconds while the home screen is visible; a slow or
+broken plugin only affects its own block.
+
+| Keys | Action |
+|---|---|
+| `1`–`9` | open the plugin with that number |
+| `h j k l`, arrows | move between blocks (`g`/`G` first/last) |
+| `enter`, `o` | open the selected plugin |
+| `:` or `p` | command palette |
+| `m` | manage plugins |
+| `?` | help |
+| `q` | quit |
+
+Numbers follow the plugin order (built-in plugins last) and stay fixed while the home
+screen is open. Plugins after the ninth have no number. Inside a tab, digits go to the
+plugin; `ctrl+g 1`–`9` switches tabs.
+
+### Leader keys
 
 Every host shortcut starts with the **leader key, `ctrl+g`**. All other keys go to the
 focused plugin.

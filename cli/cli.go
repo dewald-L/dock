@@ -45,6 +45,7 @@ Usage:
       --desc TEXT              one-line description
       --dir DIR                working directory (default: home)
       --pause                  wait for Enter after it exits, so its output stays readable
+      --summary CMD            shell command whose output (3 lines) shows on the home screen
   dock plugin remove <id>      exec: unregister; native: uninstall and rebuild
 
   dock build [--out PATH]      rebuild dock with the configured native plugins
@@ -209,6 +210,7 @@ func pluginInfo(id string) error {
 		row("command", strings.Join(e.Exec.Command, " "))
 		row("dir", e.Exec.Dir)
 		row("pause", fmt.Sprint(e.Exec.Pause))
+		row("summary", strings.Join(e.Exec.Summary, " "))
 	}
 	row("data dir", config.PluginDataDir(m.ID))
 	row("config dir", config.PluginConfigDir(m.ID))
@@ -239,6 +241,7 @@ func pluginAdd(args []string) error {
 	desc := fs.String("desc", "", "description")
 	dir := fs.String("dir", "", "working directory")
 	pause := fs.Bool("pause", false, "wait for Enter after exit")
+	summary := fs.String("summary", "", "home screen summary command (run with sh -c)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -269,9 +272,13 @@ func pluginAdd(args []string) error {
 	if _, err := exec.LookPath(command[0]); err != nil {
 		fmt.Fprintf(os.Stderr, "dock: warning: %s is not on PATH right now\n", command[0])
 	}
-	cfg.Exec = append(cfg.Exec, config.ExecPlugin{
+	x := config.ExecPlugin{
 		ID: id, Name: *name, Description: *desc, Command: command, Dir: expand(*dir), Pause: *pause,
-	})
+	}
+	if *summary != "" {
+		x.Summary = []string{"sh", "-c", *summary}
+	}
+	cfg.Exec = append(cfg.Exec, x)
 	if err := cfg.Save(); err != nil {
 		return err
 	}

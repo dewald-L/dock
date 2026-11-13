@@ -8,9 +8,11 @@ package scratch
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +33,31 @@ func (Plugin) Manifest() plugin.Manifest {
 		Display:     plugin.DisplayTile, Lifecycle: plugin.Persistent,
 		MinWidth: 20, MinHeight: 4,
 	}
+}
+
+// Summary implements plugin.Summarizer: the home screen shows the pad's
+// first line and its size. It only reads the saved file, so it is cheap,
+// safe to call concurrently and works whether or not the pad is open.
+func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
+	b, err := os.ReadFile(filepath.Join(ctx.DataDir, "scratch.md"))
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && strings.TrimSpace(string(b)) == "") {
+		return plugin.Summary{Lines: []string{"empty"}}, nil
+	}
+	if err != nil {
+		return plugin.Summary{}, err
+	}
+	text := string(b)
+	first := ""
+	for _, l := range strings.Split(text, "\n") {
+		if first = strings.TrimSpace(l); first != "" {
+			break
+		}
+	}
+	lines := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
+	return plugin.Summary{Lines: []string{
+		first,
+		fmt.Sprintf("%d lines · %d words", lines, len(strings.Fields(text))),
+	}}, nil
 }
 
 func (Plugin) New(ctx plugin.Context) (tea.Model, error) {

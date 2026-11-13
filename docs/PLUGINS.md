@@ -3,8 +3,8 @@
 This is the contract between dock (the host) and its plugins. Read sections 1–3 before
 starting a plugin. Use the rest as a reference, and finish with the checklist at the end.
 
-`examples/scratch` is a complete reference plugin of about 130 lines. Copy it as a
-starting point.
+`examples/scratch` is a complete reference plugin of about 160 lines, including a home
+screen `Summary`. Copy it as a starting point.
 
 dock itself contains no plugins. Each native plugin lives in its own Go package, usually
 in its own repo, and dock compiles it in when you run `dock plugin install`.
@@ -129,8 +129,8 @@ Rules for the plugin's module:
 | Field | Rule |
 |---|---|
 | `ID` | Lowercase letters, digits and `-`. **Never change it after release**, because it names the plugin's data and config directories. |
-| `Name` | Shown in tabs, pane borders, the launcher and the palette. Keep it short (one or two words). |
-| `Description` | One line, shown in the launcher and `dock plugin list`. |
+| `Name` | Shown in tabs, pane borders, the home screen and the palette. Keep it short (one or two words). |
+| `Description` | One line, shown in its home screen block and `dock plugin list`. |
 | `Version` | Free-form; semver recommended. |
 | `Display`, `Lifecycle`, `Multi` | See section 2. |
 | `MinWidth`, `MinHeight` | Below this size the host shows a placeholder instead of calling `View`. |
@@ -288,7 +288,77 @@ Both exist before `New` is called.
 
 ---
 
-## 10. Running outside dock
+## 10. Home screen summaries
+
+dock's home screen (shown while no tab is open) has a numbered block per plugin:
+`[1] Name` in the title, the description, and the kind at the bottom. A plugin can add a
+few lines of live status to its block, so the home screen works as a dashboard:
+
+```
+╭─ [1] lazysheet ──────────────── ● ─╮
+│ Timesheets: log, browse, edit and… │
+│ Today 8h15 · week 18h15 / 40h      │
+│ Mo ███ Tu ██▌ We ▎ Th · Fr ·       │
+╰──────────────────── native · full ─╯
+```
+
+**When to implement one:** when there is one or two numbers worth seeing without
+opening the plugin (hours logged, open items, unread count, last run). Skip it when the
+summary would only repeat the description.
+
+Implement `plugin.Summarizer` on the **Plugin value**, not the model, so it works
+while no instance is open:
+
+```go
+func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
+    n, err := countOpen(ctx.DataDir) // read files; no model, no shared state
+    if err != nil {
+        return plugin.Summary{}, err
+    }
+    s := plugin.Summary{Lines: []string{fmt.Sprintf("%d open items", n)}}
+    if n > 10 {
+        s.Level = plugin.LevelWarn
+    }
+    return s, nil
+}
+```
+
+The rules:
+
+- **Plain text only.** Up to 3 short lines (`plugin.MaxSummaryLines`); the host
+  truncates lines that don't fit the block, and strips ANSI codes and control
+  characters. No layout, no colour: `Level` (`LevelOk`, `LevelWarn`, `LevelErr`, or
+  the default `LevelNone`) puts a dot in the theme's colour on the block's border.
+- **Read-only, and independent of any instance.** `ctx` has the same `DataDir`,
+  `ConfigDir` and `Theme` as `New` gets, but no model exists necessarily.
+- **Runs off the UI goroutine, possibly while an instance of the same plugin is open,
+  and concurrently with other plugins' summaries.** Don't touch globals your model
+  mutates. Reading files your model writes atomically is fine.
+- **Cheap: aim for under 100 ms.** dock fetches summaries when the home screen
+  appears and every 30 seconds while it stays visible, and stops when it's hidden.
+  After 2 seconds a call counts as timed out. A call that never returns blocks further
+  calls for that plugin (its block says "not responding"); it never blocks other
+  blocks or the UI.
+- **Errors and panics** are shown, muted, in your block only. After a failed refresh
+  the last good summary stays, with a "refresh failed" note.
+- Plugins without `Summarizer` keep working unchanged; their block shows the
+  description only.
+
+**Exec plugins** can have a summary too: a command whose stdout (first 3 lines) is
+shown. Set it with `dock plugin add --summary 'df -h --output=avail,pcent / | tail -1' ...` (run with
+`sh -c`) or the config's `"summary": ["prog", "arg"]`. It gets the plugin's usual
+environment plus `DOCK_SUMMARY=1`, runs under the same 2 second timeout, and a
+non-zero exit shows the first line of stderr.
+
+Home screen keys: `1`–`9` open the plugin with that number, `h j k l` (or arrows)
+move between blocks, `enter`/`o` open the selected one. Numbers follow the plugin
+order (built-in plugins last), stay fixed while the home screen is open, and stop at
+9. These keys only exist on the home screen: inside a tab, digits go to the plugin
+as usual.
+
+---
+
+## 11. Running outside dock
 
 A native plugin can stay usable as its own binary. Put the plugin in a package and add a
 small `main`:
@@ -308,12 +378,12 @@ prints the last `Notify` on exit. The same model then runs unchanged in both pla
 
 ---
 
-## 11. Exec plugins
+## 12. Exec plugins
 
 Register them with:
 
 ```
-dock plugin add [--name N] [--desc D] [--dir DIR] [--pause] <id> -- <command> [args...]
+dock plugin add [--name N] [--desc D] [--dir DIR] [--pause] [--summary CMD] <id> -- <command> [args...]
 ```
 
 The program runs in the real terminal, with dock suspended (alt screen left, raw mode
@@ -331,12 +401,13 @@ off). It gets these environment variables:
 - **`--pause`:** waits for Enter after the program exits, so its final output stays on
   screen before dock redraws. Use it for tools that print a summary and exit (osheet).
 - **Working directory:** your home directory, unless `--dir` is set.
+- **`--summary CMD`:** a home screen summary command (section 10).
 - Exec plugins can't tile and keep no state between runs. Port a tool to native when you
   want either.
 
 ---
 
-## 12. Checklist
+## 13. Checklist
 
 - [ ] `ID` is final, lowercase and unique; `Name` is short; `Description` is one line.
 - [ ] `Display` chosen with section 2. If `Tile`, `MinWidth`/`MinHeight` are set and the
@@ -352,6 +423,9 @@ off). It gets these environment variables:
 - [ ] `plugin.Exec` used instead of `tea.ExecProcess`.
 - [ ] Styled with `ctx.Theme`.
 - [ ] Data in `ctx.DataDir`, or the tool's existing location, documented.
+- [ ] If there is status worth a glance, `Summary` is implemented on the Plugin value:
+      plain text, at most 3 lines, read-only, safe to call concurrently, under 100 ms,
+      and unit-tested.
 - [ ] `plugin.Register` called from `init`. `dock plugin install` builds it, and
       `dock plugin list` shows it.
 - [ ] Tested in a tab, in a 2-pane split (when Tile), zoomed, and after a terminal
