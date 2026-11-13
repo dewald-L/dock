@@ -1,5 +1,7 @@
-// Package scratch is a minimal reference plugin: a notepad that saves to
-// its data directory. It shows every part of the plugin contract in a
+// Package scratch is an example plugin, not built into dock by default:
+// install it with `dock plugin install github.com/dewald-L/dock/examples/scratch`.
+// It is a minimal reference plugin: a notepad that saves to its data
+// directory. It shows every part of the plugin contract in a
 // small space: sizing, focus, saving on blur/close, status bar hints,
 // palette commands and notifications.
 package scratch
@@ -18,6 +20,9 @@ import (
 )
 
 type Plugin struct{}
+
+// Importing the package compiles the plugin into dock.
+func init() { plugin.Register(Plugin{}) }
 
 func (Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{

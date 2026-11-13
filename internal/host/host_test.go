@@ -11,9 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/dewald-L/dock/examples/scratch"
 	"github.com/dewald-L/dock/internal/config"
 	"github.com/dewald-L/dock/plugin"
-	"github.com/dewald-L/dock/plugins/scratch"
 )
 
 // ---- a configurable test plugin ----

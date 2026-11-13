@@ -3,8 +3,11 @@
 This is the contract between dock (the host) and its plugins. Read sections 1–3 before
 starting a plugin. Use the rest as a reference, and finish with the checklist at the end.
 
-`plugins/scratch` is a complete reference plugin of about 130 lines. Copy it as a
+`examples/scratch` is a complete reference plugin of about 130 lines. Copy it as a
 starting point.
+
+dock itself contains no plugins. Each native plugin lives in its own Go package, usually
+in its own repo, and dock compiles it in when you run `dock plugin install`.
 
 ---
 
@@ -17,7 +20,7 @@ starting point.
 | Can tile next to other plugins | Yes, if `DisplayTile` | No |
 | Keeps state when you switch away | Yes (`Persistent`) | No. It runs once, then it's gone |
 | Uses the host theme, status bar and palette | Yes | No |
-| Adding one | Write the package, list it in `plugins/plugins.go`, rebuild | `dock plugin add <id> -- <command>` |
+| Adding one | `dock plugin install <go-package>` (dock rebuilds itself with it) | `dock plugin add <id> -- <command>` |
 
 **Pick native** for anything you keep open, switch back to, or want beside something
 else. **Pick exec** for one-shot tools (log an entry, run a report), for tools in other
@@ -69,6 +72,9 @@ import (
 
 type Plugin struct{}
 
+// Importing the package registers the plugin. This is the only wiring dock needs.
+func init() { plugin.Register(Plugin{}) }
+
 func (Plugin) Manifest() plugin.Manifest {
     return plugin.Manifest{
         ID: "myplugin", Name: "My Plugin", Version: "0.1.0",
@@ -91,18 +97,32 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { /* ... */ }
 func (m *model) View() string                            { /* ... */ }
 ```
 
-Register it in `plugins/plugins.go`:
+Install it:
 
-```go
-return []plugin.Plugin{
-    scratch.Plugin{},
-    myplugin.Plugin{},
-}
+```bash
+dock plugin install github.com/you/myplugin                    # latest published version
+dock plugin install github.com/you/myplugin@v1.2.0             # a specific version
+dock plugin install --path ~/Projects/myplugin github.com/you/myplugin   # local checkout
 ```
 
-The plugin package must not import anything under `internal/`. The only dock package it
-may use is `github.com/dewald-L/dock/plugin`, so a plugin can live in its own module or
-repo later.
+`install` records the package in the config and generates a small main module in
+`~/.cache/dock/build` that imports dock and every installed plugin package. It then
+compiles that module to `~/.local/share/dock/bin/dock`. Point `dock` on your `PATH` at
+that file. `dock build` rebuilds the same thing, for example after you change a plugin,
+and `dock plugin remove <id>` uninstalls and rebuilds. If a build fails, the config is
+left as it was.
+
+How dock finds its own source: the config's `"source"` (a local checkout) wins. Next is
+the checkout the running binary was built in. Then the dock version the binary was built
+from. Finally, the latest release.
+
+Rules for the plugin's module:
+
+- Import only `github.com/dewald-L/dock/plugin` from dock, never anything under
+  `internal/` (Go won't allow it anyway).
+- `require` a real, published dock version in `go.mod`. A local `replace` is fine for
+  developing the plugin, but builds ignore it: dock's builder supplies dock itself.
+- One package may register several plugins.
 
 ### Manifest fields
 
@@ -332,5 +352,7 @@ off). It gets these environment variables:
 - [ ] `plugin.Exec` used instead of `tea.ExecProcess`.
 - [ ] Styled with `ctx.Theme`.
 - [ ] Data in `ctx.DataDir`, or the tool's existing location, documented.
-- [ ] Listed in `plugins/plugins.go`. Tested in a tab, in a 2-pane split (when Tile),
-      zoomed, and after a terminal resize.
+- [ ] `plugin.Register` called from `init`. `dock plugin install` builds it, and
+      `dock plugin list` shows it.
+- [ ] Tested in a tab, in a 2-pane split (when Tile), zoomed, and after a terminal
+      resize.

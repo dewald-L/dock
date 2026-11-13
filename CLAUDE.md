@@ -23,11 +23,20 @@ plugin API.
 - `internal/registry/`: merges system, native and exec plugins. `internal/config/`: the
   JSON config and XDG paths. `internal/execplugin/`: exec env vars, result file and the
   pause wrapper.
-- `plugins/plugins.go`: the list of compiled-in native plugins. `plugins/scratch/` is the
-  reference plugin. lazy1on1 lives in its own repo (`../lazy1on1`, package
-  `dockplugin`) and is wired in with `replace github.com/dewald-L/lazy1on1 => ../lazy1on1`.
-  lazy1on1 imports `dock/plugin` the same way, so a change to `plugin/` must still build
-  there (`cd ../lazy1on1 && go build ./...`).
+- **dock depends on no plugin and no other repo.** Native plugins call
+  `plugin.Register` in `init()`. `internal/build` (xcaddy-style) generates
+  `~/.cache/dock/build/main.go`, which blank-imports dock plus the config's `native`
+  packages and calls `cli.Main()`, then compiles it to `~/.local/share/dock/bin/dock`.
+  `ResolveDock` picks the dock source in this order: config `source`, the checkout next to
+  the running binary, a dock dependency's replace path (inside a built binary), then the
+  version. Go stamps local builds with a VCS pseudo-version, so checkouts take priority.
+- `cli/`: the public command line (`cli.Main`); `main.go` is just `cli.Main()`.
+  `install` and `remove` restore the config if the build fails. `dock plugin packages`
+  (hidden) prints the registered packages and is used to verify an install.
+- `examples/scratch/`: the reference plugin. It is not built in, but can be installed by
+  its package path.
+- External plugins (e.g. lazy1on1 at ../lazy1on1) import `dock/plugin`. After changing
+  `plugin/`, check they still build.
 
 ## Rules
 - Bubble Tea v1 (bubbletea v1.3.10, bubbles v1.0.0, lipgloss v1.1.0). Don't upgrade to v2
@@ -39,6 +48,6 @@ plugin API.
 ## Testing
 `go test ./...` (internal/host/host_test.go drives the model with a fake runtime) and
 `go vet ./...`.
-Never test against the real config. Set `DOCK_CONFIG_DIR` and `DOCK_DATA_DIR` to temp
-dirs. A pty harness must answer the startup `OSC 11` and `CSI 6n` queries, or dock waits
+Never test against the real config. Set `DOCK_CONFIG_DIR`, `DOCK_DATA_DIR` and
+`XDG_CACHE_HOME` (the build dir) to temp dirs. A pty harness must answer the startup `OSC 11` and `CSI 6n` queries, or dock waits
 on them.

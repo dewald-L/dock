@@ -123,7 +123,7 @@ func (m *model) key(k string) tea.Cmd {
 		return edit(func(c *config.Config) error { c.SetEnabled(id, on); return nil }, e.Manifest.Name+" "+verb)
 	case "d", "delete":
 		if e.Kind != registry.Exec {
-			return plugin.Notify("only exec plugins can be removed; disable native plugins instead")
+			return plugin.Notify("native plugins are removed from the shell (it rebuilds dock): dock plugin remove " + id)
 		}
 		m.confirm = id
 	case "r":
@@ -202,6 +202,7 @@ func (m *model) View() string {
 			multi = "multiple instances"
 		}
 		field("runs as", fmt.Sprintf("%s · %s · %s", mf.Display, mf.Lifecycle, multi))
+		field("package", e.Package)
 		if mf.MinWidth > 0 || mf.MinHeight > 0 {
 			field("min size", fmt.Sprintf("%dx%d", mf.MinWidth, mf.MinHeight))
 		}
@@ -220,6 +221,7 @@ func (m *model) View() string {
 		b.WriteString("\n" + m.warn.Render(fmt.Sprintf("Remove exec plugin %s from the config? y/N", m.confirm)) + "\n")
 	} else {
 		b.WriteString("\n" + m.muted.Render("Add an external program:  dock plugin add <id> -- <command> [args]") + "\n")
+		b.WriteString(m.muted.Render("Add a Go plugin:          dock plugin install <go-package>  (rebuilds dock)") + "\n")
 	}
 	return b.String()
 }

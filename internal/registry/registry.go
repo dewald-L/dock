@@ -29,6 +29,7 @@ type Entry struct {
 	Kind     Kind
 	Enabled  bool
 	Plugin   plugin.Plugin      // System and Native
+	Package  string             // Native: Go package that registered it
 	Exec     *config.ExecPlugin // Exec
 }
 
@@ -59,7 +60,7 @@ func Build(cfg *config.Config, system, native []plugin.Plugin) (r *Registry, err
 	}
 	for _, p := range native {
 		m := p.Manifest()
-		add(&Entry{Manifest: m, Kind: Native, Enabled: !cfg.IsDisabled(m.ID), Plugin: p})
+		add(&Entry{Manifest: m, Kind: Native, Enabled: !cfg.IsDisabled(m.ID), Plugin: p, Package: plugin.PackageOf(p)})
 	}
 	for i := range cfg.Exec {
 		x := &cfg.Exec[i]

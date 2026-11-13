@@ -26,6 +26,38 @@ type Config struct {
 	Disabled []string `json:"disabled,omitempty"`
 	// Exec lists external programs registered as plugins.
 	Exec []ExecPlugin `json:"exec,omitempty"`
+	// Native lists Go plugin packages compiled into dock by `dock build`.
+	Native []NativePlugin `json:"native,omitempty"`
+	// Source is a local dock checkout to build against. Empty means the
+	// released version this binary was built from (or the latest).
+	Source string `json:"source,omitempty"`
+}
+
+// NativePlugin is a Go package that registers one or more plugins.
+type NativePlugin struct {
+	Package string `json:"package"`
+	// Version to build (e.g. v1.2.0, a commit, "latest"). Ignored with Path.
+	Version string `json:"version,omitempty"`
+	// Path is a local checkout of the package's module, used instead of
+	// downloading it.
+	Path string `json:"path,omitempty"`
+}
+
+// FindNative returns the native plugin entry for pkg, or nil.
+func (c *Config) FindNative(pkg string) *NativePlugin {
+	for i := range c.Native {
+		if c.Native[i].Package == pkg {
+			return &c.Native[i]
+		}
+	}
+	return nil
+}
+
+// RemoveNative deletes the native plugin entry for pkg.
+func (c *Config) RemoveNative(pkg string) bool {
+	n := len(c.Native)
+	c.Native = slices.DeleteFunc(c.Native, func(p NativePlugin) bool { return p.Package == pkg })
+	return len(c.Native) != n
 }
 
 // ExecPlugin is an external program run with the terminal handed over.
@@ -108,6 +140,9 @@ func DataRoot() string {
 	}
 	return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "dock")
 }
+
+// BinPath is where `dock build` installs the dock binary it compiles.
+func BinPath() string { return filepath.Join(DataRoot(), "bin", "dock") }
 
 // Path is the config file path.
 func Path() string { return filepath.Join(Dir(), "config.json") }
