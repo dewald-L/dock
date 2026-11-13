@@ -44,8 +44,6 @@ Usage:
                                install a plugin from the index by id, or a native
                                (Go) package, and rebuild dock with it; --path
                                builds from a local checkout of its module
-  dock plugin install --defaults
-                               install every plugin the index marks as default
   dock plugin add [flags] <id> [--] <command> [args...]
                                register an external program as an exec plugin
       --name NAME              display name (default: id)
@@ -311,15 +309,8 @@ func pluginAdd(args []string) error {
 func pluginInstall(args []string) error {
 	fs := flag.NewFlagSet("dock plugin install", flag.ContinueOnError)
 	path := fs.String("path", "", "local checkout of the plugin's module")
-	defaults := fs.Bool("defaults", false, "install the index's default plugins")
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-	if *defaults {
-		if fs.NArg() > 0 || *path != "" {
-			return errors.New("--defaults takes no other arguments")
-		}
-		return installDefaults()
 	}
 	np := config.NativePlugin{Path: expand(*path)}
 	switch fs.NArg() {
@@ -589,49 +580,6 @@ func addExec(cfg *config.Config, reg *registry.Registry, e index.Entry) (bool, e
 		fmt.Fprintf(os.Stderr, "dock: warning: %s is not on PATH right now\n", e.Command[0])
 	}
 	return true, nil
-}
-
-// installDefaults installs every default entry of the index with a single
-// rebuild. It always rebuilds, so a dock binary exists afterwards even
-// when the index has no native defaults.
-func installDefaults() error {
-	cfg, reg, err := load()
-	if err != nil {
-		return err
-	}
-	r, err := loadIndex(cfg)
-	if err != nil {
-		return err
-	}
-	defs := r.Defaults()
-	if len(defs) == 0 {
-		fmt.Println("the plugin index has no default plugins")
-	}
-	before := slices.Clone(cfg.Native)
-	var pkgs []string
-	for _, e := range defs {
-		switch e.Kind {
-		case index.KindExec:
-			if _, err := addExec(cfg, reg, e); err != nil {
-				return err
-			}
-		case index.KindNative:
-			pkg, version := nativeFromIndex(e, "")
-			fmt.Printf("%s: %s\n", e.ID, pkgVersion(pkg, version))
-			cfg.RemoveNative(pkg)
-			cfg.Native = append(cfg.Native, config.NativePlugin{Package: pkg, Version: version})
-			pkgs = append(pkgs, pkg)
-		}
-	}
-	if err := rebuild(cfg, before, config.BinPath()); err != nil {
-		return err
-	}
-	for _, pkg := range pkgs {
-		if !binaryHas(config.BinPath(), pkg) {
-			fmt.Fprintf(os.Stderr, "dock: warning: %s built, but it registered no plugin\n", pkg)
-		}
-	}
-	return nil
 }
 
 // pluginSearch prints the index entries matching term.

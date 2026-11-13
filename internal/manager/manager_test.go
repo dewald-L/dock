@@ -21,7 +21,7 @@ const fixture = `{
   "version": 1,
   "plugins": [
     {"id": "lazy1on1", "name": "lazy1on1", "description": "Continuous 1:1 notes: people, meetings, goals, action items",
-     "kind": "native", "package": "example.com/lazy1on1/dockplugin", "repo": "https://example.com/lazy1on1", "default": true},
+     "kind": "native", "package": "example.com/lazy1on1/dockplugin", "repo": "https://example.com/lazy1on1"},
     {"id": "osheet", "name": "OSheet", "description": "Log timesheet entries", "kind": "exec",
      "command": ["osheet"], "requires": "needs osheet on PATH"},
     {"id": "tool", "name": "Tool", "description": "Already installed", "kind": "exec", "command": ["tool"]}

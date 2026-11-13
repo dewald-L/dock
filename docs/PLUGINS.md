@@ -447,7 +447,8 @@ off). It gets these environment variables:
 
 The [dock-plugins](https://github.com/dewald-L/dock-plugins) repo holds `plugins.json`,
 the index dock reads for `dock plugin search`, `dock plugin install <id>`, the Plugins
-screen's Available section and `install.sh`'s defaults. To publish a plugin:
+screen's Available section. dock installs nothing from it on its own: users pick
+plugins. To publish a plugin:
 
 1. **Tag a version** in the plugin's repo (`git tag v0.1.0 && git push --tags`). Its
    `go.mod` must `require` a published dock version (section 3). An entry without a
@@ -472,8 +473,7 @@ screen's Available section and `install.sh`'s defaults. To publish a plugin:
    tells them when one exists); a pinned entry changes only when the index does. `version` is a tag or commit (empty: latest). Exec plugins use
    `"kind": "exec"`, a `command` argv, an optional `summary` argv, and `requires`, a
    one-line hint such as `"needs osheet on PATH"`: dock registers them but can't install
-   the program. `"default": true` makes `install.sh` install it; keep that for plugins
-   most people want.
+   the program.
 3. **CI checks** the JSON shape (format version, no unknown fields), that ids are valid
    and unique, required fields, that native entries have a package and exec entries a
    command, and that each native package resolves with `go list -m` at its version. Run

@@ -20,6 +20,7 @@ const good = `{
   "plugins": [
     {"id": "lazy1on1", "name": "lazy1on1", "description": "1:1 notes", "kind": "native",
      "package": "example.com/lazy1on1/dockplugin", "default": true, "tags": ["notes"]},
+    {"id": "old", "name": "Old", "description": "an old index's default field is ignored", "kind": "exec", "command": ["old"], "default": true},
     {"id": "osheet", "name": "OSheet", "description": "Log timesheet entries", "kind": "exec",
      "command": ["osheet"], "summary": ["osheet", "--today"], "requires": "needs osheet on PATH"}
   ]
@@ -42,15 +43,12 @@ func TestParseGood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ix.Plugins) != 2 || ix.Get("lazy1on1").Package != "example.com/lazy1on1/dockplugin" {
+	if len(ix.Plugins) != 3 || ix.Get("lazy1on1").Package != "example.com/lazy1on1/dockplugin" {
 		t.Fatalf("got %+v", ix)
 	}
 	x := ix.Get("osheet")
 	if x.Kind != KindExec || x.Command[0] != "osheet" || x.Requires == "" || len(x.Summary) != 2 {
 		t.Fatalf("exec entry: %+v", x)
-	}
-	if d := ix.Defaults(); len(d) != 1 || d[0].ID != "lazy1on1" {
-		t.Fatalf("defaults: %+v", d)
 	}
 	if ix.Get("nope") != nil {
 		t.Fatal("Get of a missing id")
@@ -116,7 +114,7 @@ func TestSearch(t *testing.T) {
 		return strings.Join(s, ",")
 	}
 	for term, want := range map[string]string{
-		"": "lazy1on1,osheet", "NOTES": "lazy1on1", "timesheet": "osheet", "zzz": "",
+		"": "lazy1on1,old,osheet", "NOTES": "lazy1on1", "timesheet": "osheet", "zzz": "",
 	} {
 		if got := ids(ix.Search(term)); got != want {
 			t.Errorf("Search(%q) = %q, want %q", term, got, want)

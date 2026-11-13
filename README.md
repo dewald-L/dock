@@ -12,21 +12,20 @@ dock ships with no plugins other than its plugin manager. Everything else is ins
 
 ## Install
 
-On macOS or Linux, one command installs dock with the default plugins from the
-[plugin index](https://github.com/dewald-L/dock-plugins) (and Go into `~/.local/go` if
-you don't have Go 1.21+). It needs no sudo. Run it again to update:
+On macOS or Linux, one command installs dock (and Go into `~/.local/go` if you don't
+have Go 1.21+). It needs no sudo. Run it again to update:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh
 ```
 
-Pass plugin ids or Go packages to install those instead, or `none` for no plugins:
+It installs no plugins. Pick them from the
+[plugin index](https://github.com/dewald-L/dock-plugins) afterwards (`dock plugin search`,
+or the Plugins screen, `ctrl+g m`), or name them, by id or Go package, when installing:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh -s -- lazy1on1 github.com/you/plugin/dockplugin
 ```
-
-If the index can't be reached, it installs dock without plugins.
 
 It downloads dock's source to `~/.local/share/dock/src/dock`, builds it, installs the
 plugins, links `~/.local/bin/dock`, and adds `~/.local/bin` to your shell's PATH. Open a
@@ -65,7 +64,6 @@ The first time you install a native plugin, dock builds a new binary at
 # from the plugin index
 dock plugin search [term]        # list plugins you can install (marks installed ones)
 dock plugin install lazy1on1     # install by id (native: rebuilds dock; exec: registers it)
-dock plugin install --defaults   # install the index's default plugins
 dock plugin info lazy1on1        # works before it's installed too
 
 # native (Go) plugins by package: dock rebuilds itself

@@ -37,7 +37,6 @@ LAZY1ON1 = {
     "package": "github.com/dewald-L/lazy1on1/dockplugin",
     "version": "",
     "repo": "https://github.com/dewald-L/lazy1on1",
-    "default": True,
     "tags": ["notes", "work"],
 }
 HELLO = {
@@ -47,7 +46,6 @@ HELLO = {
     "kind": "exec",
     "command": ["echo", "hello"],
     "requires": "needs echo on PATH",
-    "default": True,
 }
 FIXTURE = {"version": 1, "plugins": [LAZY1ON1, HELLO]}
 
@@ -275,22 +273,20 @@ def scenario_install_sh():
         cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {}
         return p, listing, cfg
 
-    p, listing, cfg = install("defaults")
+    # the index is unreachable here: with no arguments install.sh must not need it
+    p, listing, cfg = install("plain", registry="/nonexistent/plugins.json")
     check("add it to your PATH" not in p.stdout and "not this build" not in p.stdout,
           "install.sh output has no misleading PATH hint", p.stdout)
-    check("lazy1on1" in listing and "hello" in listing, "no arguments: the index defaults are installed", listing)
-    check([n["package"] for n in cfg.get("native", [])] == [LAZY1ON1["package"]], "defaults: config has lazy1on1 only")
+    check("lazy1on1" not in listing and "hello" not in listing and not cfg.get("native") and not cfg.get("exec"),
+          "no arguments: dock alone, no plugins", listing)
+    check("dock plugin search" in p.stdout, "install.sh says how to find plugins", p.stdout)
 
-    p, listing, cfg = install("args", "github.com/dewald-L/dock/examples/scratch", "hello")
-    check("scratch" in listing and "hello" in listing and "lazy1on1" not in listing,
-          "arguments (a package and an id) replace the defaults", listing)
+    p, listing, cfg = install("args", "github.com/dewald-L/dock/examples/scratch", "hello", "lazy1on1")
+    check("scratch" in listing and "hello" in listing and "lazy1on1" in listing,
+          "arguments (a package and index ids) are installed", listing)
 
     p, listing, cfg = install("none", "none")
     check("lazy1on1" not in listing and "hello" not in listing and not cfg.get("native"), "none installs no plugins", listing)
-
-    p, listing, cfg = install("noindex", registry="/nonexistent/plugins.json")
-    check("could not install the default plugins" in p.stderr and "plugins" in listing,
-          "an unreachable index falls back to a plain build", p.stderr)
 
 
 def fake_curl(root, sha=None):

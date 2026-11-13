@@ -22,12 +22,11 @@ const fixture = `{
   "version": 1,
   "plugins": [
     {"id": "lazy1on1", "name": "lazy1on1", "description": "Continuous 1:1 notes", "kind": "native",
-     "package": "example.com/lazy1on1/dockplugin", "default": true, "tags": ["notes"]},
+     "package": "example.com/lazy1on1/dockplugin", "tags": ["notes"]},
     {"id": "pinned", "name": "Pinned", "description": "A pinned plugin", "kind": "native",
      "package": "example.com/pinned", "version": "v1.2.3"},
     {"id": "osheet", "name": "OSheet", "description": "Log timesheet entries", "kind": "exec",
-     "command": ["osheet"], "summary": ["osheet", "--today"], "requires": "needs osheet on PATH",
-     "default": true}
+     "command": ["osheet"], "summary": ["osheet", "--today"], "requires": "needs osheet on PATH"}
   ]
 }`
 
@@ -159,50 +158,6 @@ func TestInstallPackagePathSkipsIndex(t *testing.T) {
 	}
 	if b := (*builds)[0][0]; b.Package != "example.com/x/dockplugin" || b.Version != "v0.1.0" {
 		t.Fatalf("built %+v", b)
-	}
-}
-
-func TestInstallDefaults(t *testing.T) {
-	builds := sandbox(t)
-	out, err := capture(t, func() error { return pluginInstall([]string{"--defaults"}) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := config.Load()
-	if len(cfg.Native) != 1 || cfg.Native[0].Package != "example.com/lazy1on1/dockplugin" {
-		t.Fatalf("native: %+v", cfg.Native)
-	}
-	if cfg.FindExec("osheet") == nil || cfg.FindNative("example.com/pinned") != nil {
-		t.Fatalf("config: %+v", cfg)
-	}
-	if len(*builds) != 1 {
-		t.Fatalf("want one build, got %d", len(*builds))
-	}
-	if !strings.Contains(out, "requires: needs osheet on PATH") {
-		t.Fatalf("output:\n%s", out)
-	}
-	// rerun (an update): still one native entry, one exec entry
-	if _, err := capture(t, func() error { return pluginInstall([]string{"--defaults"}) }); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ = config.Load()
-	if len(cfg.Native) != 1 || len(cfg.Exec) != 1 || len(*builds) != 2 {
-		t.Fatalf("rerun: %+v builds=%d", cfg, len(*builds))
-	}
-	if err := pluginInstall([]string{"--defaults", "lazy1on1"}); err == nil {
-		t.Fatal("--defaults with an argument")
-	}
-}
-
-func TestInstallDefaultsFailedBuildRestoresConfig(t *testing.T) {
-	sandbox(t)
-	buildDock = func(build.Dock, []config.NativePlugin, string, io.Writer) error { return io.ErrUnexpectedEOF }
-	if _, err := capture(t, func() error { return pluginInstall([]string{"--defaults"}) }); err == nil {
-		t.Fatal("want the build error")
-	}
-	cfg, _ := config.Load()
-	if len(cfg.Native) != 0 {
-		t.Fatalf("native not restored: %+v", cfg.Native)
 	}
 }
 
@@ -403,5 +358,12 @@ func TestPathHintSuppressed(t *testing.T) {
 	out, _ = capture(t, func() error { pathHint("/x/dock"); return nil })
 	if out != "" {
 		t.Fatalf("hint printed: %q", out)
+	}
+}
+
+func TestNoDefaultsFlag(t *testing.T) {
+	builds := sandbox(t)
+	if err := pluginInstall([]string{"--defaults"}); err == nil || len(*builds) != 0 {
+		t.Fatalf("--defaults still accepted: %v", err)
 	}
 }

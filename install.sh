@@ -3,13 +3,13 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh
 #
-# Plugins: by default it installs the plugins the plugin index marks as
-# default (dock plugin install --defaults). Pass plugin ids or Go packages to
-# install those instead, or "none" for no plugins:
+# It installs no plugins unless you name them: pass plugin ids from the
+# plugin index (https://github.com/dewald-L/dock-plugins) or Go packages:
 #
 #   curl -fsSL .../install.sh | sh -s -- lazy1on1 github.com/you/plugin/dockplugin
 #
-# DOCK_REGISTRY points it at another plugin index (a URL or a file).
+# Afterwards, browse the index with `dock plugin search` or the Plugins
+# screen (ctrl+g m). DOCK_REGISTRY points dock at another index.
 #
 # What it does: installs Go into ~/.local/go if there is no usable Go
 # (dock needs it to build itself with plugins), downloads dock's source
@@ -20,7 +20,6 @@
 set -eu
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
-warn() { printf 'dock install: warning: %s\n' "$*" >&2; }
 die() {
 	printf 'dock install: %s\n' "$*" >&2
 	exit 1
@@ -88,13 +87,7 @@ curl -fsSL "https://codeload.github.com/dewald-L/dock/tar.gz/${sha:-refs/heads/m
 [ -z "$sha" ] || printf '%s\n' "$sha" >"$boot/.dock-version"
 (cd "$boot" && go build -o dock .)
 
-if [ "$#" -eq 0 ]; then
-	say "installing the default plugins"
-	if ! "$boot/dock" plugin install --defaults; then
-		warn "could not install the default plugins; building dock without them"
-		"$boot/dock" build
-	fi
-elif [ "$*" = "none" ]; then
+if [ "$#" -eq 0 ] || [ "$*" = "none" ]; then
 	say "building dock"
 	"$boot/dock" build
 else
@@ -123,3 +116,4 @@ fi
 
 "$BIN/dock" plugin list
 say "done: run \`dock\` (ctrl+g ? for help)"
+say "find plugins with \`dock plugin search\`, install with \`dock plugin install <id>\`"

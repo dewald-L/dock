@@ -63,7 +63,6 @@ type Entry struct {
 	Summary     []string `json:"summary,omitempty"` // exec: home screen summary argv
 	Requires    string   `json:"requires,omitempty"`
 	Repo        string   `json:"repo,omitempty"`
-	Default     bool     `json:"default,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 }
 
@@ -145,17 +144,6 @@ func (ix *Index) Search(term string) []Entry {
 	for _, e := range ix.Plugins {
 		hay := strings.ToLower(strings.Join(append([]string{e.ID, e.Name, e.Description}, e.Tags...), "\n"))
 		if term == "" || strings.Contains(hay, term) {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// Defaults returns the entries marked default.
-func (ix *Index) Defaults() []Entry {
-	var out []Entry
-	for _, e := range ix.Plugins {
-		if e.Default {
 			out = append(out, e)
 		}
 	}

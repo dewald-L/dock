@@ -71,16 +71,15 @@ plugin API.
 - `install.sh`: the curl-pipe installer (POSIX sh, macOS and Linux, no sudo). It installs
   Go into ~/.local/go when there is no Go 1.21+, downloads the main tarball into
   ~/.local/share/dock/src/dock and builds there (`go install dock@latest` refuses
-  dock's go.mod replace directives), installs plugins (`dock plugin install --defaults`
-  from the index, falling back to a plain `dock build`; arguments are ids or packages,
-  `none` means none), links
+  dock's go.mod replace directives), installs only the plugins given as arguments (index
+  ids or packages; none, or `none`, means a plain `dock build`; the index has no
+  default plugins), links
   ~/.local/bin/dock and edits the shell rc once. It sets `GOPRIVATE=github.com/dewald-L/*` so
   plugins' `@latest` comes from git, not a stale proxy cache. Check it with `shfmt -p` and a run
   in a sandbox HOME.
 - `cli/`: the public command line (`cli.Main`); `main.go` is just `cli.Main()`.
   `install` and `remove` restore the config if the build fails. `install <arg>` treats
-  an argument without `/` as an index id; `--defaults` installs all default entries with
-  one rebuild. `buildDock` is a var so tests can stub the compile. `dock plugin packages`
+  an argument without `/` as an index id. `buildDock` is a var so tests can stub the compile. `dock plugin packages`
   (hidden) prints the registered packages and is used to verify an install.
 - `examples/scratch/`: the reference plugin. It is not built in, but can be installed by
   its package path.
