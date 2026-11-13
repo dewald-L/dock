@@ -21,6 +21,7 @@ in its own repo, and dock compiles it in when you run `dock plugin install`.
 | Keeps state when you switch away | Yes (`Persistent`) | No. It runs once, then it's gone |
 | Uses the host theme, status bar and palette | Yes | No |
 | Adding one | `dock plugin install <go-package>` (dock rebuilds itself with it) | `dock plugin add <id> -- <command>` |
+| From the index | `dock plugin install <id>` | `dock plugin install <id>` (registers it; the program itself must be installed separately) |
 
 **Pick native** for anything you keep open, switch back to, or want beside something
 else. **Pick exec** for one-shot tools (log an entry, run a report), for tools in other
@@ -438,3 +439,45 @@ off). It gets these environment variables:
       `dock plugin list` shows it.
 - [ ] Tested in a tab, in a 2-pane split (when Tile), zoomed, and after a terminal
       resize.
+- [ ] To share it, published in the plugin index (section 14).
+
+---
+
+## 14. Publishing a plugin
+
+The [dock-plugins](https://github.com/dewald-L/dock-plugins) repo holds `plugins.json`,
+the index dock reads for `dock plugin search`, `dock plugin install <id>`, the Plugins
+screen's Available section and `install.sh`'s defaults. To publish a plugin:
+
+1. **Tag a version** in the plugin's repo (`git tag v0.1.0 && git push --tags`). Its
+   `go.mod` must `require` a published dock version (section 3). An entry without a
+   version follows the latest commit instead.
+2. **Open a PR** in dock-plugins that adds an entry and a row to its README table:
+
+   ```json
+   {
+     "id": "myplugin",
+     "name": "My Plugin",
+     "description": "One line that says what it's for",
+     "kind": "native",
+     "package": "github.com/you/myplugin/dockplugin",
+     "version": "v0.1.0",
+     "repo": "https://github.com/you/myplugin",
+     "tags": ["notes"]
+   }
+   ```
+
+   `id`, `name`, `description` and `package` must match the manifest and the import
+   path. `version` is a tag or commit (empty: latest). Exec plugins use
+   `"kind": "exec"`, a `command` argv, an optional `summary` argv, and `requires`, a
+   one-line hint such as `"needs osheet on PATH"`: dock registers them but can't install
+   the program. `"default": true` makes `install.sh` install it; keep that for plugins
+   most people want.
+3. **CI checks** the JSON shape (format version, no unknown fields), that ids are valid
+   and unique, required fields, that native entries have a package and exec entries a
+   command, and that each native package resolves with `go list -m` at its version. Run
+   `go test ./...` in dock-plugins to check before pushing.
+
+The file's top-level `"version"` is the index format. dock ignores unknown fields, so
+new optional fields need no bump; a format dock can't read makes it ask the user to
+update dock.

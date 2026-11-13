@@ -272,7 +272,7 @@ func (a *App) renderHelp() []string {
 		{lk + " r", "rotate split (columns ↔ rows)"},
 		{lk + " tab  h j k l", "move between panes"},
 		{lk + " ]  [  1-9", "next / previous / nth tab"},
-		{lk + " m", "manage plugins"},
+		{lk + " m", "manage and install plugins"},
 		{lk + " " + lk, "send " + lk + " to the plugin"},
 		{lk + " q   ctrl+c", "quit dock"},
 	}

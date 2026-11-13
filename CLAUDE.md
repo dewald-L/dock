@@ -31,6 +31,18 @@ plugin API.
     repeated. Never call Summary from Update or View.
 - `internal/manager/`: the built-in "plugins" system plugin. It edits the config and sends
   `ReloadMsg`.
+  It also shows the "Available" section: index entries not in the registry, loaded by
+  `fetchIndex` in a `tea.Cmd` (`availMsg{gen}`; stale generations are dropped). `i` runs
+  `<os.Executable()> plugin install <id>` via `plugin.Exec` with the pause wrapper
+  (`execplugin.Paused`); a native install only takes effect after a restart. `View`
+  returns exactly w×h (`fitBlock`) and scrolls the list to the selection.
+- `internal/index/`: the plugin index (dock-plugins' `plugins.json`). `Source` is
+  `DOCK_REGISTRY` > config `registry` > `DefaultURL`; local paths and `file://` are read
+  directly, URLs are fetched (5 s timeout, 1 MiB cap) and cached in
+  `$XDG_CACHE_HOME/dock/index.json` for an hour, with any-age fallback when offline
+  (`Result.Stale`). `"version"` above `FormatVersion` is `ErrNewerFormat` ("update
+  dock"), never masked by the cache. Unknown fields are ignored. Never fetch from
+  Update/View or at startup.
 - `internal/registry/`: merges system, native and exec plugins. `internal/config/`: the
   JSON config and XDG paths. `internal/execplugin/`: exec env vars, result file, the
   pause wrapper and the summary command runner.
@@ -48,12 +60,16 @@ plugin API.
 - `install.sh`: the curl-pipe installer (POSIX sh, macOS and Linux, no sudo). It installs
   Go into ~/.local/go when there is no Go 1.21+, downloads the main tarball into
   ~/.local/share/dock/src/dock and builds there (`go install dock@latest` refuses
-  dock's go.mod replace directives), installs plugins (default lazy1on1), links
+  dock's go.mod replace directives), installs plugins (`dock plugin install --defaults`
+  from the index, falling back to a plain `dock build`; arguments are ids or packages,
+  `none` means none), links
   ~/.local/bin/dock and edits the shell rc once. It sets `GOPRIVATE=github.com/dewald-L/*` so
   plugins' `@latest` comes from git, not a stale proxy cache. Check it with `shfmt -p` and a run
   in a sandbox HOME.
 - `cli/`: the public command line (`cli.Main`); `main.go` is just `cli.Main()`.
-  `install` and `remove` restore the config if the build fails. `dock plugin packages`
+  `install` and `remove` restore the config if the build fails. `install <arg>` treats
+  an argument without `/` as an index id; `--defaults` installs all default entries with
+  one rebuild. `buildDock` is a var so tests can stub the compile. `dock plugin packages`
   (hidden) prints the registered packages and is used to verify an install.
 - `examples/scratch/`: the reference plugin. It is not built in, but can be installed by
   its package path.
@@ -75,6 +91,10 @@ plugin API.
 home_test.go covers the home grid, number keys and summary fetching) and `go vet ./...`.
 The fake runtime drops commands slower than 50 ms, so home tests use `newHomeApp`, which
 shortens the summary timeout.
-Never test against the real config. Set `DOCK_CONFIG_DIR`, `DOCK_DATA_DIR` and
-`XDG_CACHE_HOME` (the build dir) to temp dirs. A pty harness must answer the startup `OSC 11` and `CSI 6n` queries, or dock waits
+Never test against the real config or the real index. Set `DOCK_CONFIG_DIR`,
+`DOCK_DATA_DIR` and `XDG_CACHE_HOME` (the build dir and index cache) to temp dirs, and
+`DOCK_REGISTRY` to a fixture file or an `httptest` server.
+`python3 -I e2e/run.py [--show] [--only cli,tui,offline,install]` runs the pty and
+install.sh end-to-end tests in sandboxes (`e2e/harness.py` is a copy of lazysheet's);
+`--show` prints the Plugins screen at 60x20 and 120x40. A pty harness must answer the startup `OSC 11` and `CSI 6n` queries, or dock waits
 on them.

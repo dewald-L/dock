@@ -12,18 +12,21 @@ dock ships with no plugins other than its plugin manager. Everything else is ins
 
 ## Install
 
-On macOS or Linux, one command installs dock with the lazy1on1 plugin (and Go into
-`~/.local/go` if you don't have Go 1.21+). It needs no sudo. Run it again to update:
+On macOS or Linux, one command installs dock with the default plugins from the
+[plugin index](https://github.com/dewald-L/dock-plugins) (and Go into `~/.local/go` if
+you don't have Go 1.21+). It needs no sudo. Run it again to update:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh
 ```
 
-Pass plugin packages to install those instead, or `none` for no plugins:
+Pass plugin ids or Go packages to install those instead, or `none` for no plugins:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh -s -- github.com/you/plugin/dockplugin
+curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh -s -- lazy1on1 github.com/you/plugin/dockplugin
 ```
+
+If the index can't be reached, it installs dock without plugins.
 
 It downloads dock's source to `~/.local/share/dock/src/dock`, builds it, installs the
 plugins, links `~/.local/bin/dock`, and adds `~/.local/bin` to your shell's PATH. Open a
@@ -42,7 +45,13 @@ The first time you install a native plugin, dock builds a new binary at
 ## Plugins
 
 ```bash
-# native (Go) plugins: dock rebuilds itself
+# from the plugin index
+dock plugin search [term]        # list plugins you can install (marks installed ones)
+dock plugin install lazy1on1     # install by id (native: rebuilds dock; exec: registers it)
+dock plugin install --defaults   # install the index's default plugins
+dock plugin info lazy1on1        # works before it's installed too
+
+# native (Go) plugins by package: dock rebuilds itself
 dock plugin install github.com/dewald-L/lazy1on1/dockplugin
 dock plugin install --path ~/Projects/lazy1on1 github.com/dewald-L/lazy1on1/dockplugin  # local checkout
 dock plugin install github.com/dewald-L/dock/examples/scratch                            # the example
@@ -60,6 +69,20 @@ dock config                      # print the config path
 ```
 
 The `Plugins` screen inside dock (`ctrl+g m`) lists, opens, enables and disables plugins.
+Below the installed plugins, **Available** lists the index's plugins that aren't
+installed: `i` installs the selected one (the build runs in the terminal; native plugins
+load after you restart dock), `r` refreshes the index, `?` shows the screen's keys.
+
+### The plugin index
+
+`dock plugin search`, install by id and the Available section read
+[`plugins.json`](https://github.com/dewald-L/dock-plugins) from the
+[dock-plugins](https://github.com/dewald-L/dock-plugins) repo. dock caches it in
+`$XDG_CACHE_HOME/dock/index.json` for an hour; offline, it uses the cache whatever its
+age and says so, e.g. `(cached, 3h)`. Point dock at another index with the config's
+`"registry"` (an https URL, a `file://` URL or a path) or the `DOCK_REGISTRY` env var,
+which overrides it. To publish a plugin, see
+[docs/PLUGINS.md](docs/PLUGINS.md#14-publishing-a-plugin).
 
 ## Use
 
@@ -106,7 +129,7 @@ focused plugin.
 | `ctrl+g z` | zoom the focused pane |
 | `ctrl+g r` | rotate the split (columns ↔ rows) |
 | `ctrl+g ]` `[` `1`–`9` | switch tabs |
-| `ctrl+g m` | manage plugins (enable, disable, inspect, remove) |
+| `ctrl+g m` | manage plugins (enable, disable, inspect, remove, install) |
 | `ctrl+g ?` | help |
 | `ctrl+g q`, `ctrl+c` | quit |
 | `ctrl+g ctrl+g` | send `ctrl+g` itself to the plugin |
@@ -130,7 +153,9 @@ The config file is `$XDG_CONFIG_HOME/dock/config.json`:
 ```
 
 `native` entries take `package` plus either `version` or a local `path`. The optional
-`"source"` setting points builds at a local dock checkout.
+`"source"` setting points builds at a local dock checkout, and `"registry"` sets the
+plugin index (default
+`https://raw.githubusercontent.com/dewald-L/dock-plugins/main/plugins.json`).
 
 Plugin data is stored in `$XDG_DATA_HOME/dock/<id>/` and plugin settings in
 `$XDG_CONFIG_HOME/dock/plugins/<id>/`.

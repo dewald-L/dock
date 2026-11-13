@@ -31,6 +31,10 @@ type Config struct {
 	// Source is a local dock checkout to build against. Empty means the
 	// released version this binary was built from (or the latest).
 	Source string `json:"source,omitempty"`
+	// Registry is the plugin index used by `dock plugin search` and
+	// install-by-id: an https URL, a file:// URL or a local path. Empty
+	// means the dock-plugins index on GitHub. DOCK_REGISTRY overrides it.
+	Registry string `json:"registry,omitempty"`
 }
 
 // NativePlugin is a Go package that registers one or more plugins.

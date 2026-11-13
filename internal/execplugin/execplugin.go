@@ -20,6 +20,12 @@ import (
 // stays readable, and exits with the program's status.
 const pauseScript = `"$@"; s=$?; printf '\n\033[2m[dock] press Enter to return\033[0m'; read _; exit $s`
 
+// Paused wraps argv so that, after it exits, the terminal waits for Enter
+// before dock redraws. The wrapper exits with argv's status.
+func Paused(argv []string) []string {
+	return append([]string{"sh", "-c", pauseScript, "dock-exec"}, argv...)
+}
+
 // Run is a prepared exec plugin process.
 type Run struct {
 	Cmd        *exec.Cmd
@@ -46,7 +52,7 @@ func Prepare(x *config.ExecPlugin) (*Run, error) {
 
 	argv := x.Command
 	if x.Pause {
-		argv = append([]string{"sh", "-c", pauseScript, "dock-exec"}, argv...)
+		argv = Paused(argv)
 	}
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Dir = x.Dir

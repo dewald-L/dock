@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/dewald-L/dock/internal/build"
 	"github.com/dewald-L/dock/internal/config"
 	"github.com/dewald-L/dock/internal/host"
+	"github.com/dewald-L/dock/internal/index"
 	"github.com/dewald-L/dock/internal/registry"
 	"github.com/dewald-L/dock/plugin"
 )
@@ -32,13 +34,17 @@ Usage:
   dock [plugin-id...]          start, opening the given plugins (default: config "startup")
 
   dock plugin list             list plugins
-  dock plugin info <id>        show one plugin
+  dock plugin search [term]    list plugins in the index (config "registry")
+  dock plugin info <id>        show one plugin, installed or in the index
   dock plugin enable <id>      enable a plugin
   dock plugin disable <id>     disable a plugin
 
-  dock plugin install [--path DIR] <go-package>[@version]
-                               add a native (Go) plugin and rebuild dock with it;
-                               --path builds from a local checkout of its module
+  dock plugin install [--path DIR] <id>|<go-package>[@version]
+                               install a plugin from the index by id, or a native
+                               (Go) package, and rebuild dock with it; --path
+                               builds from a local checkout of its module
+  dock plugin install --defaults
+                               install every plugin the index marks as default
   dock plugin add [flags] <id> [--] <command> [args...]
                                register an external program as an exec plugin
       --name NAME              display name (default: id)
@@ -122,6 +128,11 @@ func pluginCmd(args []string) error {
 	switch args[0] {
 	case "list", "ls":
 		return pluginList()
+	case "search":
+		if len(args) > 2 {
+			return errors.New("usage: dock plugin search [term]")
+		}
+		return pluginSearch(os.Stdout, strings.Join(args[1:], " "))
 	case "info":
 		return withID(args, pluginInfo)
 	case "enable":
@@ -184,7 +195,7 @@ func pluginInfo(id string) error {
 	}
 	e := reg.Get(id)
 	if e == nil {
-		return fmt.Errorf("unknown plugin %q", id)
+		return indexInfo(id)
 	}
 	m := e.Manifest
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -291,14 +302,21 @@ func pluginAdd(args []string) error {
 func pluginInstall(args []string) error {
 	fs := flag.NewFlagSet("dock plugin install", flag.ContinueOnError)
 	path := fs.String("path", "", "local checkout of the plugin's module")
+	defaults := fs.Bool("defaults", false, "install the index's default plugins")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *defaults {
+		if fs.NArg() > 0 || *path != "" {
+			return errors.New("--defaults takes no other arguments")
+		}
+		return installDefaults()
 	}
 	np := config.NativePlugin{Path: expand(*path)}
 	switch fs.NArg() {
 	case 0:
 		if np.Path == "" {
-			return errors.New("usage: dock plugin install [--path DIR] <go-package>[@version]")
+			return errors.New("usage: dock plugin install [--path DIR] <id>|<go-package>[@version]")
 		}
 		mod, err := build.ModulePath(np.Path)
 		if err != nil {
@@ -306,7 +324,24 @@ func pluginInstall(args []string) error {
 		}
 		np.Package = mod
 	case 1:
-		np.Package, np.Version, _ = strings.Cut(fs.Arg(0), "@")
+		arg, version, _ := strings.Cut(fs.Arg(0), "@")
+		if strings.Contains(arg, "/") {
+			np.Package, np.Version = arg, version
+			break
+		}
+		// an id: look it up in the index
+		e, err := lookupIndex(arg)
+		if err != nil {
+			return err
+		}
+		if e.Kind == index.KindExec {
+			if np.Path != "" || version != "" {
+				return fmt.Errorf("%s is an exec plugin: --path and @version don't apply", arg)
+			}
+			return installExec(e)
+		}
+		np.Package, np.Version = nativeFromIndex(e, version)
+		fmt.Printf("%s: %s\n", e.ID, pkgVersion(np.Package, np.Version))
 	default:
 		return errors.New("install one package at a time")
 	}
@@ -392,7 +427,7 @@ func rebuild(cfg *config.Config, previous []config.NativePlugin, out string) err
 	}
 	dock := build.ResolveDock(cfg)
 	fmt.Printf("building dock with %d native plugin(s)\n", len(cfg.Native))
-	if err := build.Build(dock, cfg.Native, out, prefixWriter{}); err != nil {
+	if err := buildDock(dock, cfg.Native, out, prefixWriter{}); err != nil {
 		cfg.Native = previous
 		if serr := cfg.Save(); serr != nil {
 			return fmt.Errorf("%v (and restoring the config failed: %v)", err, serr)
@@ -403,6 +438,9 @@ func rebuild(cfg *config.Config, previous []config.NativePlugin, out string) err
 	pathHint(out)
 	return nil
 }
+
+// buildDock compiles dock; tests replace it.
+var buildDock = build.Build
 
 type prefixWriter struct{}
 
@@ -448,4 +486,217 @@ func expand(p string) string {
 		}
 	}
 	return p
+}
+
+// ---- the plugin index ----
+
+// loadIndex reads the configured plugin index, noting on stderr when it
+// came from the cache because the fetch failed.
+func loadIndex(cfg *config.Config) (*index.Result, error) {
+	r, err := index.Load(index.Source(cfg), false)
+	if err != nil {
+		return nil, err
+	}
+	if r.Stale {
+		fmt.Fprintf(os.Stderr, "dock: using the cached plugin index %s: %v\n", r.Note(), r.Err)
+	}
+	return r, nil
+}
+
+// lookupIndex finds id in the plugin index.
+func lookupIndex(id string) (index.Entry, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return index.Entry{}, err
+	}
+	r, err := loadIndex(cfg)
+	if err != nil {
+		return index.Entry{}, err
+	}
+	e := r.Get(id)
+	if e == nil {
+		return index.Entry{}, fmt.Errorf("no plugin %q in the index (see dock plugin search)", id)
+	}
+	return *e, nil
+}
+
+// nativeFromIndex returns the package and version to install for a native
+// index entry. A version given on the command line overrides the pin.
+func nativeFromIndex(e index.Entry, override string) (pkg, version string) {
+	if override != "" {
+		return e.Package, override
+	}
+	return e.Package, e.Version
+}
+
+// execFromIndex is the config entry for an exec index entry.
+func execFromIndex(e index.Entry) config.ExecPlugin {
+	return config.ExecPlugin{
+		ID: e.ID, Name: e.Name, Description: e.Description,
+		Command: slices.Clone(e.Command), Summary: slices.Clone(e.Summary),
+	}
+}
+
+func pkgVersion(pkg, version string) string {
+	if version == "" {
+		return pkg + " (latest)"
+	}
+	return pkg + "@" + version
+}
+
+// installExec registers an exec index entry. dock can't install the program
+// itself, so it prints the entry's requirements.
+func installExec(e index.Entry) error {
+	cfg, reg, err := load()
+	if err != nil {
+		return err
+	}
+	if added, err := addExec(cfg, reg, e); err != nil || !added {
+		return err
+	}
+	return cfg.Save()
+}
+
+// addExec adds e to cfg unless it is already there. It reports whether it
+// changed cfg.
+func addExec(cfg *config.Config, reg *registry.Registry, e index.Entry) (bool, error) {
+	if cfg.FindExec(e.ID) != nil {
+		fmt.Printf("%s is already added\n", e.ID)
+		return false, nil
+	}
+	if reg.Get(e.ID) != nil {
+		return false, fmt.Errorf("a plugin with id %q already exists", e.ID)
+	}
+	cfg.Exec = append(cfg.Exec, execFromIndex(e))
+	fmt.Printf("added %s: %s\n", e.ID, strings.Join(e.Command, " "))
+	if e.Requires != "" {
+		fmt.Printf("  requires: %s\n", e.Requires)
+	}
+	if _, err := exec.LookPath(e.Command[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "dock: warning: %s is not on PATH right now\n", e.Command[0])
+	}
+	return true, nil
+}
+
+// installDefaults installs every default entry of the index with a single
+// rebuild. It always rebuilds, so a dock binary exists afterwards even
+// when the index has no native defaults.
+func installDefaults() error {
+	cfg, reg, err := load()
+	if err != nil {
+		return err
+	}
+	r, err := loadIndex(cfg)
+	if err != nil {
+		return err
+	}
+	defs := r.Defaults()
+	if len(defs) == 0 {
+		fmt.Println("the plugin index has no default plugins")
+	}
+	before := slices.Clone(cfg.Native)
+	var pkgs []string
+	for _, e := range defs {
+		switch e.Kind {
+		case index.KindExec:
+			if _, err := addExec(cfg, reg, e); err != nil {
+				return err
+			}
+		case index.KindNative:
+			pkg, version := nativeFromIndex(e, "")
+			fmt.Printf("%s: %s\n", e.ID, pkgVersion(pkg, version))
+			cfg.RemoveNative(pkg)
+			cfg.Native = append(cfg.Native, config.NativePlugin{Package: pkg, Version: version})
+			pkgs = append(pkgs, pkg)
+		}
+	}
+	if err := rebuild(cfg, before, config.BinPath()); err != nil {
+		return err
+	}
+	for _, pkg := range pkgs {
+		if !binaryHas(config.BinPath(), pkg) {
+			fmt.Fprintf(os.Stderr, "dock: warning: %s built, but it registered no plugin\n", pkg)
+		}
+	}
+	return nil
+}
+
+// pluginSearch prints the index entries matching term.
+func pluginSearch(w io.Writer, term string) error {
+	cfg, reg, err := load()
+	if err != nil {
+		return err
+	}
+	r, err := loadIndex(cfg)
+	if err != nil {
+		return err
+	}
+	es := r.Search(term)
+	if len(es) == 0 {
+		if term == "" {
+			fmt.Fprintln(w, "the plugin index is empty")
+		} else {
+			fmt.Fprintf(w, "no plugins match %q\n", term)
+		}
+		return nil
+	}
+	known := registeredIDs(reg)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tNAME\tKIND\tDESCRIPTION\tSTATUS")
+	for _, e := range es {
+		st := ""
+		if e.Installed(cfg, known) {
+			st = "installed"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.DisplayName(), e.Kind, e.Description, st)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if !r.Stale && r.Cached {
+		fmt.Fprintf(os.Stderr, "dock: plugin index %s\n", r.Note())
+	}
+	return nil
+}
+
+func registeredIDs(reg *registry.Registry) []string {
+	ids := make([]string, 0, len(reg.Entries))
+	for _, e := range reg.Entries {
+		ids = append(ids, e.Manifest.ID)
+	}
+	return ids
+}
+
+// indexInfo describes a plugin that is in the index but not installed.
+func indexInfo(id string) error {
+	e, err := lookupIndex(id)
+	if err != nil {
+		return fmt.Errorf("unknown plugin %q: not installed, and %v", id, err)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	row := func(k, v string) {
+		if v != "" {
+			fmt.Fprintf(tw, "%s\t%s\n", k, v)
+		}
+	}
+	row("id", e.ID)
+	row("name", e.DisplayName())
+	row("description", e.Description)
+	row("kind", e.Kind)
+	if e.Kind == index.KindNative {
+		row("package", e.Package)
+		v := e.Version
+		if v == "" {
+			v = "latest"
+		}
+		row("version", v)
+	} else {
+		row("command", strings.Join(e.Command, " "))
+		row("summary", strings.Join(e.Summary, " "))
+	}
+	row("requires", e.Requires)
+	row("repo", e.Repo)
+	row("tags", strings.Join(e.Tags, ", "))
+	row("status", "not installed (dock plugin install "+e.ID+")")
+	return tw.Flush()
 }
