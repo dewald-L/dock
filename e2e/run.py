@@ -1,7 +1,7 @@
 """End-to-end tests for the plugin index: drive real dock binaries through a
 pty and run install.sh, all in sandboxes.
 
-    python3 -I e2e/run.py [--keep] [--show] [--only cli,tui,offline,install]
+    python3 -I e2e/run.py [--keep] [--show] [--only cli,tui,offline,install,update]
 
 Never touches the real config, data, cache or the real index: every run sets
 HOME, DOCK_CONFIG_DIR, DOCK_DATA_DIR and XDG_CACHE_HOME to temp dirs, and
@@ -14,11 +14,13 @@ network (lazy1on1@latest).
 harness.py is a copy of lazysheet's e2e/harness.py.
 """
 import http.server
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 
@@ -91,6 +93,7 @@ class Sandbox:
             "DOCK_DATA_DIR": os.path.join(self.root, "data"),
             "XDG_CACHE_HOME": os.path.join(self.root, "cache"),
             "DOCK_REGISTRY": self.registry,
+            "DOCK_NO_UPDATE_CHECK": "1",  # the update scenario turns it back on
             **GO_ENV,
         }
         os.makedirs(self.env["DOCK_CONFIG_DIR"])
@@ -252,29 +255,11 @@ def scenario_offline():
 def scenario_install_sh():
     print("install.sh in a sandbox HOME")
 
-    def tarball(root):
-        """A fake curl: serves this checkout as dock's tarball, refuses all else."""
-        bin_dir = os.path.join(root, "fakebin")
-        os.makedirs(bin_dir)
-        script = (
-            "#!/bin/sh\n"
-            'case "$*" in\n'
-            f'*codeload.github.com/dewald-L/dock/*) tar -C "{REPO}" --exclude=./.git --exclude=./dock '
-            "--transform 's,^\\.,dock-main,' -czf - . ;;\n"
-            '*) echo "fake curl: refusing $*" >&2; exit 1 ;;\n'
-            "esac\n"
-        )
-        path = os.path.join(bin_dir, "curl")
-        with open(path, "w") as f:
-            f.write(script)
-        os.chmod(path, 0o755)
-        return bin_dir
-
     def install(name, *args, registry=None):
         sb = Sandbox("install-" + name)
         env = {
             "HOME": sb.home,
-            "PATH": tarball(sb.root) + ":" + os.environ["PATH"],
+            "PATH": fake_curl(sb.root) + ":" + os.environ["PATH"],
             "SHELL": "/bin/sh",
             "LANG": "C.UTF-8",
             "DOCK_REGISTRY": registry or sb.registry,
@@ -306,7 +291,130 @@ def scenario_install_sh():
           "an unreachable index falls back to a plain build", p.stderr)
 
 
-SCENARIOS = {"cli": scenario_cli, "tui": scenario_tui, "offline": scenario_offline, "install": scenario_install_sh}
+def fake_curl(root, sha=None):
+    """A fake curl for install.sh: serves this checkout as dock's tarball and,
+    with sha, answers GitHub's commit API with it. Refuses everything else."""
+    bin_dir = os.path.join(root, "fakebin")
+    os.makedirs(bin_dir)
+    api = f'*api.github.com/repos/dewald-L/dock/commits/main*) echo {sha} ;;\n' if sha else ""
+    script = (
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        + api +
+        f'*codeload.github.com/dewald-L/dock/*) tar -C "{REPO}" --exclude=./.git --exclude=./dock '
+        "--exclude=__pycache__ --transform 's,^\\.,dock-main,' -czf - . ;;\n"
+        '*) echo "fake curl: refusing $*" >&2; exit 1 ;;\n'
+        "esac\n"
+    )
+    path = os.path.join(bin_dir, "curl")
+    with open(path, "w") as f:
+        f.write(script)
+    os.chmod(path, 0o755)
+    return bin_dir
+
+
+class UpdateServer:
+    """Answers like GitHub for dock update: main is at sha, and its tarball
+    is this checkout plus an UPDATE_MARKER file."""
+
+    def __init__(self, sha):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            def skip(ti):
+                base = ti.name.split("/", 1)[1] if "/" in ti.name else ""
+                return None if base.startswith((".git", "dock-")) or base == "dock" or "__pycache__" in ti.name else ti
+            tf.add(REPO, arcname=f"dock-{sha}", filter=skip)
+            marker = b"updated\n"
+            ti = tarfile.TarInfo(f"dock-{sha}/UPDATE_MARKER")
+            ti.size = len(marker)
+            tf.addfile(ti, io.BytesIO(marker))
+        tarball = buf.getvalue()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path == "/repos/dewald-L/dock/commits/main":
+                    body = sha.encode()
+                elif self.path == f"/dewald-L/dock/tar.gz/{sha}":
+                    body = tarball
+                else:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def scenario_update():
+    print("update: install.sh records the commit, dock update replaces it")
+    sha_a, sha_b = "a" * 40, "b" * 40
+    sb = Sandbox("update")
+    env = {
+        "HOME": sb.home,
+        "PATH": fake_curl(sb.root, sha_a) + ":" + os.environ["PATH"],
+        "SHELL": "/bin/sh",
+        "LANG": "C.UTF-8",
+        "TERM": "xterm-256color",
+        "DOCK_REGISTRY": sb.registry,
+        **GO_ENV,
+    }
+    p = subprocess.run(["sh", os.path.join(REPO, "install.sh"), "lazy1on1"], env=env, capture_output=True, text=True,
+                       timeout=900)
+    if p.returncode != 0:
+        raise AssertionError(f"install.sh failed:\n{p.stdout}\n{p.stderr}")
+    src = os.path.join(sb.home, ".local", "share", "dock", "src", "dock")
+    version = lambda: open(os.path.join(src, ".dock-version")).read().strip()  # noqa: E731
+    check(version() == sha_a, "install.sh records the commit it installed")
+
+    dock = os.path.join(sb.home, ".local", "bin", "dock")
+    srv = UpdateServer(sha_b)
+    env["DOCK_UPDATE_SERVER"] = srv.url
+    try:
+        out = subprocess.run([dock, "update", "--check"], env=env, capture_output=True, text=True, timeout=120).stdout
+        check(f"dock: {sha_a[:12]} → {sha_b[:12]}" in out and version() == sha_a,
+              "dock update --check shows the new commit and changes nothing", out)
+
+        t = Term([dock], env, cols=120, rows=40, cwd=sb.home)
+        try:
+            s = t.wait_for("update available", 30)
+            check("ctrl+g : update dock" in s or "0.2.0 · update available" in s, "the TUI says an update is available", s)
+            show(t, "update available")
+            t.send("ctrl+g", ":")
+            t.type("update dock")
+            s = t.wait_for("available: dock", 5)
+            t.send("enter")
+            s = t.wait_for("press Enter to return", 600)
+            check("updated dock" in s, "the palette's update dock runs dock update in the terminal", s)
+            t.send("enter")
+            s = t.wait_for("update finished: restart dock", 15)
+            check("update available" not in s, "after the update the notice is gone", s)
+            t.send("ctrl+g", "q")
+            t.wait_exit(5)
+        finally:
+            t.close()
+        check(version() == sha_b and os.path.exists(os.path.join(src, "UPDATE_MARKER")), "the source is the new commit")
+        check(not os.path.exists(src + ".old") and not os.path.exists(src + ".new"), "no old or partial trees left")
+        out = subprocess.run([dock, "plugin", "list"], env=env, capture_output=True, text=True, check=True).stdout
+        check("lazy1on1" in out, "the rebuilt dock still has its plugins", out)
+        out = subprocess.run([dock, "update"], env=env, capture_output=True, text=True, timeout=300).stdout
+        check("everything is up to date" in out, "a second dock update has nothing to do", out)
+    finally:
+        srv.stop()
+
+
+SCENARIOS = {"cli": scenario_cli, "tui": scenario_tui, "offline": scenario_offline, "install": scenario_install_sh,
+             "update": scenario_update}
 
 
 def main():

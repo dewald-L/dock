@@ -120,6 +120,11 @@ func (a *App) paletteItems() []palItem {
 	}
 	add("manage plugins", "ctrl+g m", func() tea.Cmd { return a.open("plugins", false) })
 	add("reload config", "re-read "+shortPath(), func() tea.Cmd { return a.reload("config reloaded") })
+	updDesc := "dock update: dock and plugins, then rebuild"
+	if a.updates != "" {
+		updDesc = "available: " + a.updates
+	}
+	add("update dock", updDesc, func() tea.Cmd { return a.runUpdate() })
 	add("help", "ctrl+g ?", func() tea.Cmd { a.overlay = ovHelp; return nil })
 	add("quit dock", "ctrl+g q", func() tea.Cmd { return a.quit() })
 	return items

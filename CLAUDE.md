@@ -43,6 +43,17 @@ plugin API.
   (`Result.Stale`). `"version"` above `FormatVersion` is `ErrNewerFormat` ("update
   dock"), never masked by the cache. Unknown fields are ignored. Never fetch from
   Update/View or at startup.
+- `internal/update/`: update checks and `dock update`. dock is "managed" only when
+  `ResolveDock` gives `$DATA/src/dock` (install.sh's tree); its commit is in
+  `.dock-version` (install.sh writes it from GitHub's commit API). Latest = main's sha
+  (`Accept: application/vnd.github.sha`) and `go list -m mod@latest` for unpinned,
+  non-local plugins, whose current version comes from the build info of
+  `config.BinPath()`. Only latest versions are cached (`$XDG_CACHE_HOME/dock/update.json`,
+  24 h); installed versions are read fresh. `ReplaceSource` swaps in the new tree and
+  keeps `.old` until `Commit`/`Restore`. `DOCK_UPDATE_SERVER` replaces both GitHub hosts
+  (tests); `DOCK_NO_UPDATE_CHECK` or config `update_check: false` turns the background
+  check off. The host runs `Options.CheckUpdates` once in a `tea.Cmd` after Init, never
+  when it is nil (host tests leave it nil).
 - `internal/registry/`: merges system, native and exec plugins. `internal/config/`: the
   JSON config and XDG paths. `internal/execplugin/`: exec env vars, result file, the
   pause wrapper and the summary command runner.
@@ -93,7 +104,9 @@ The fake runtime drops commands slower than 50 ms, so home tests use `newHomeApp
 shortens the summary timeout.
 Never test against the real config or the real index. Set `DOCK_CONFIG_DIR`,
 `DOCK_DATA_DIR` and `XDG_CACHE_HOME` (the build dir and index cache) to temp dirs, and
-`DOCK_REGISTRY` to a fixture file or an `httptest` server.
+`DOCK_REGISTRY` to a fixture file or an `httptest` server. Update tests set
+`DOCK_UPDATE_SERVER` to a fake GitHub; e2e sandboxes set `DOCK_NO_UPDATE_CHECK=1`
+except the update scenario.
 `python3 -I e2e/run.py [--show] [--only cli,tui,offline,install]` runs the pty and
 install.sh end-to-end tests in sandboxes (`e2e/harness.py` is a copy of lazysheet's);
 `--show` prints the Plugins screen at 60x20 and 120x40. A pty harness must answer the startup `OSC 11` and `CSI 6n` queries, or dock waits

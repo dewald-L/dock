@@ -32,6 +32,23 @@ It downloads dock's source to `~/.local/share/dock/src/dock`, builds it, install
 plugins, links `~/.local/bin/dock`, and adds `~/.local/bin` to your shell's PATH. Open a
 new terminal afterwards.
 
+### Updates
+
+Once a day dock checks in the background whether dock (installed with `install.sh`) or
+any native plugin has a newer version. If so, the status bar says so at startup, the home
+screen shows `update available` next to the version, and the palette's **update dock**
+(`ctrl+g :`) runs the update with its output on screen.
+
+```bash
+dock update --check   # show what's new, change nothing
+dock update           # download dock's latest main, rebuild with plugins at @latest
+```
+
+Plugins pinned to a version or installed with `--path` are left as they are. A dock built
+from a checkout (or the config's `"source"`) is yours to update: `git pull`, then
+`dock build`; `dock update` still updates its plugins. If the build fails, the old source
+is put back. Set `"update_check": false` in the config to turn the background check off.
+
 From a checkout instead:
 
 ```bash
@@ -153,7 +170,8 @@ The config file is `$XDG_CONFIG_HOME/dock/config.json`:
 ```
 
 `native` entries take `package` plus either `version` or a local `path`. The optional
-`"source"` setting points builds at a local dock checkout, and `"registry"` sets the
+`"source"` setting points builds at a local dock checkout, `"update_check": false` turns
+off the daily update check, and `"registry"` sets the
 plugin index (default
 `https://raw.githubusercontent.com/dewald-L/dock-plugins/main/plugins.json`).
 

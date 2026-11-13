@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +15,7 @@ import (
 	"github.com/dewald-L/dock/internal/build"
 	"github.com/dewald-L/dock/internal/config"
 	"github.com/dewald-L/dock/internal/index"
+	"github.com/dewald-L/dock/internal/update"
 )
 
 const fixture = `{
@@ -278,5 +283,112 @@ func TestDefaultRegistry(t *testing.T) {
 	t.Setenv("DOCK_REGISTRY", "")
 	if index.Source(&config.Config{}) != index.DefaultURL {
 		t.Fatal("default registry")
+	}
+}
+
+// ---- dock update ----
+
+const (
+	shaOld = "1111111111111111111111111111111111111111"
+	shaNew = "2222222222222222222222222222222222222222"
+)
+
+// updateSandbox installs a managed dock source at shaOld and a fake GitHub
+// whose main is at shaNew. It returns the build recorder.
+func updateSandbox(t *testing.T) *[][]config.NativePlugin {
+	t.Helper()
+	builds := sandbox(t)
+	src := update.SourceDir()
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "go.mod"), []byte("module github.com/dewald-L/dock\n"), 0o644)
+	os.WriteFile(filepath.Join(src, update.VersionFile), []byte(shaOld+"\n"), 0o644)
+	cfg := &config.Config{Source: src} // what ResolveDock says for an install.sh dock
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	var tb bytes.Buffer
+	gz := gzip.NewWriter(&tb)
+	tw := tar.NewWriter(gz)
+	body := "module github.com/dewald-L/dock\n// new\n"
+	tw.WriteHeader(&tar.Header{Name: "dock-x/go.mod", Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
+	tw.Write([]byte(body))
+	tw.Close()
+	gz.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/dewald-L/dock/commits/main":
+			w.Write([]byte(shaNew))
+		case "/dewald-L/dock/tar.gz/" + shaNew:
+			w.Write(tb.Bytes())
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("DOCK_UPDATE_SERVER", srv.URL)
+	return builds
+}
+
+func installedVersion() string {
+	b, _ := os.ReadFile(filepath.Join(update.SourceDir(), update.VersionFile))
+	return strings.TrimSpace(string(b))
+}
+
+func TestUpdateCheckOnly(t *testing.T) {
+	builds := updateSandbox(t)
+	var out bytes.Buffer
+	if err := updateCmd(&out, []string{"--check"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "dock: 111111111111 → 222222222222") || !strings.Contains(out.String(), "run `dock update`") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	if len(*builds) != 0 || installedVersion() != shaOld {
+		t.Fatal("--check changed something")
+	}
+}
+
+func TestUpdateApplies(t *testing.T) {
+	builds := updateSandbox(t)
+	var out bytes.Buffer
+	if _, err := capture(t, func() error { return updateCmd(&out, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if installedVersion() != shaNew || len(*builds) != 1 {
+		t.Fatalf("version %s builds %d\n%s", installedVersion(), len(*builds), out.String())
+	}
+	if b, _ := os.ReadFile(filepath.Join(update.SourceDir(), "go.mod")); !strings.Contains(string(b), "// new") {
+		t.Fatal("source not replaced")
+	}
+	if !strings.Contains(out.String(), "updated dock; restart dock to use it") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	// again: nothing to do
+	out.Reset()
+	if err := updateCmd(&out, nil); err != nil || !strings.Contains(out.String(), "everything is up to date") || len(*builds) != 1 {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+}
+
+func TestUpdateFailedBuildRestoresSource(t *testing.T) {
+	updateSandbox(t)
+	buildDock = func(build.Dock, []config.NativePlugin, string, io.Writer) error { return io.ErrUnexpectedEOF }
+	_, err := capture(t, func() error { return updateCmd(io.Discard, nil) })
+	if err == nil {
+		t.Fatal("want the build error")
+	}
+	if installedVersion() != shaOld {
+		t.Fatal("old source not restored")
+	}
+}
+
+func TestUpdateOffline(t *testing.T) {
+	builds := updateSandbox(t)
+	t.Setenv("DOCK_UPDATE_SERVER", "http://127.0.0.1:1")
+	var out bytes.Buffer
+	err := updateCmd(&out, nil)
+	if err == nil || !strings.Contains(out.String(), "could not check dock") || len(*builds) != 0 {
+		t.Fatalf("%v\n%s", err, out.String())
 	}
 }

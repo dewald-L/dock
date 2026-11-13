@@ -468,7 +468,8 @@ screen's Available section and `install.sh`'s defaults. To publish a plugin:
    ```
 
    `id`, `name`, `description` and `package` must match the manifest and the import
-   path. `version` is a tag or commit (empty: latest). Exec plugins use
+   path. Users of an unpinned entry get your new releases with `dock update` (dock
+   tells them when one exists); a pinned entry changes only when the index does. `version` is a tag or commit (empty: latest). Exec plugins use
    `"kind": "exec"`, a `command` argv, an optional `summary` argv, and `requires`, a
    one-line hint such as `"needs osheet on PATH"`: dock registers them but can't install
    the program. `"default": true` makes `install.sh` install it; keep that for plugins

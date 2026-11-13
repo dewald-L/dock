@@ -24,6 +24,10 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case execDoneMsg:
 		return a.execDone(m)
+	case updatesMsg:
+		return a.gotUpdates(m)
+	case updateDoneMsg:
+		return a.updateDone(m)
 	case summaryMsg:
 		a.gotSummary(m)
 		return nil

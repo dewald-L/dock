@@ -22,6 +22,7 @@ import (
 	"github.com/dewald-L/dock/internal/host"
 	"github.com/dewald-L/dock/internal/index"
 	"github.com/dewald-L/dock/internal/registry"
+	"github.com/dewald-L/dock/internal/update"
 	"github.com/dewald-L/dock/plugin"
 )
 
@@ -56,6 +57,8 @@ Usage:
 
   dock build [--out PATH]      rebuild dock with the configured native plugins
                                (default output: ~/.local/share/dock/bin/dock)
+  dock update [--check]        update dock and its native plugins and rebuild;
+                               --check only shows what is new
   dock config                  print the config file path
   dock version
 
@@ -73,6 +76,8 @@ func Main() {
 			err = pluginCmd(args[1:])
 		case "build":
 			err = buildCmd(args[1:])
+		case "update", "upgrade":
+			err = updateCmd(os.Stdout, args[1:])
 		case "config":
 			fmt.Println(config.Path())
 		case "version", "--version", "-v":
@@ -116,7 +121,11 @@ func run(ids []string) error {
 			return fmt.Errorf("unknown plugin %q (see dock plugin list)", id)
 		}
 	}
-	app := host.New(host.Options{Config: cfg, Native: plugin.Registered(), Open: ids, Version: Version})
+	opts := host.Options{Config: cfg, Native: plugin.Registered(), Open: ids, Version: Version}
+	if !update.Disabled(cfg) {
+		opts.CheckUpdates = func() string { return update.Cached(cfg).Summary() }
+	}
+	app := host.New(opts)
 	_, err = tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }
@@ -699,4 +708,59 @@ func indexInfo(id string) error {
 	row("tags", strings.Join(e.Tags, ", "))
 	row("status", "not installed (dock plugin install "+e.ID+")")
 	return tw.Flush()
+}
+
+// ---- update ----
+
+// updateCmd checks for newer versions of dock and its unpinned native
+// plugins and, unless --check, downloads dock's source and rebuilds.
+func updateCmd(w io.Writer, args []string) error {
+	fs := flag.NewFlagSet("dock update", flag.ContinueOnError)
+	check := fs.Bool("check", false, "only show what can be updated")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return errors.New("usage: dock update [--check]")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "checking for updates…")
+	st := update.Check(cfg)
+	fmt.Fprint(w, st.Report())
+	if *check {
+		if st.Available() {
+			fmt.Fprintln(w, "run `dock update` to install them")
+		}
+		return nil
+	}
+	if !st.Available() {
+		if len(st.Errors) > 0 {
+			return errors.New("could not check every update; nothing changed")
+		}
+		fmt.Fprintln(w, "everything is up to date")
+		return nil
+	}
+	var swap *update.Swap
+	if st.Dock != nil {
+		fmt.Fprintf(w, "downloading dock %s\n", st.Dock.Latest)
+		if swap, err = update.ReplaceSource(st.Dock.Latest); err != nil {
+			return fmt.Errorf("downloading dock: %w", err)
+		}
+	}
+	if err := rebuild(cfg, cfg.Native, config.BinPath()); err != nil {
+		if swap != nil {
+			if rerr := swap.Restore(); rerr != nil {
+				return fmt.Errorf("%v (and restoring the old source failed: %v)", err, rerr)
+			}
+		}
+		return err
+	}
+	if swap != nil {
+		swap.Commit()
+	}
+	fmt.Fprintf(w, "updated %s; restart dock to use it\n", st.Summary())
+	return nil
 }

@@ -35,6 +35,9 @@ type Config struct {
 	// install-by-id: an https URL, a file:// URL or a local path. Empty
 	// means the dock-plugins index on GitHub. DOCK_REGISTRY overrides it.
 	Registry string `json:"registry,omitempty"`
+	// UpdateCheck turns the daily background update check off when false.
+	// `dock update` works either way.
+	UpdateCheck *bool `json:"update_check,omitempty"`
 }
 
 // NativePlugin is a Go package that registers one or more plugins.

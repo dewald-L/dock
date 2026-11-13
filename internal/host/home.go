@@ -163,7 +163,11 @@ func (a *App) renderHome(w, h int) []string {
 	bs := a.st.border
 	side := bs.Render("│")
 	padRow := side + strings.Repeat(" ", mw-2) + side
-	lines := []string{borderLine("╭", "╮", label{"dock", a.st.brand}, label{a.opts.Version, a.st.muted}, mw, bs)}
+	ver := label{a.opts.Version, a.st.muted}
+	if a.updates != "" {
+		ver = label{a.opts.Version + " · update available", a.st.accent}
+	}
+	lines := []string{borderLine("╭", "╮", label{"dock", a.st.brand}, ver, mw, bs)}
 	for range pad {
 		lines = append(lines, padRow)
 	}
@@ -192,6 +196,9 @@ func (a *App) renderHomeList(w, h int, entries []homeEntry, sel int) []string {
 		a.homeTop--
 	}
 	header := a.st.muted.Render(" dock " + a.opts.Version)
+	if a.updates != "" {
+		header += a.st.accent.Render(" · update available")
+	}
 	var more []string
 	if a.homeTop > 0 {
 		more = append(more, "↑")

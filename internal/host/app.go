@@ -4,6 +4,8 @@ package host
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +27,9 @@ type Options struct {
 	Native  []plugin.Plugin
 	Open    []string // plugin IDs to open at start; default Config.Startup
 	Version string
+	// CheckUpdates, if set, runs once in the background after start and
+	// returns what can be updated ("dock, lazy1on1") or "".
+	CheckUpdates func() string
 }
 
 type instance struct {
@@ -89,6 +94,8 @@ type App struct {
 	sumEvery   time.Duration
 	sumTimeout time.Duration
 
+	updates string // what can be updated, from Options.CheckUpdates
+
 	status    string
 	statusErr bool
 	statusSeq int
@@ -146,7 +153,56 @@ func (a *App) Init() tea.Cmd {
 	if len(a.loadErrs) > 0 {
 		cmds = append(cmds, a.notify(a.loadErrs[0].Error(), true))
 	}
+	if a.opts.CheckUpdates != nil {
+		cmds = append(cmds, checkUpdates(a.opts.CheckUpdates))
+	}
 	return tea.Batch(append(cmds, a.sync())...)
+}
+
+// ---- updates ----
+
+type updatesMsg struct{ text string }
+
+type updateDoneMsg struct{ err error }
+
+// checkUpdates runs the check off the UI goroutine. A panic or failure
+// just means no notice.
+func checkUpdates(f func() string) tea.Cmd {
+	return func() (msg tea.Msg) {
+		defer func() {
+			if recover() != nil {
+				msg = updatesMsg{}
+			}
+		}()
+		return updatesMsg{f()}
+	}
+}
+
+func (a *App) gotUpdates(m updatesMsg) tea.Cmd {
+	a.updates = m.text
+	if m.text == "" {
+		return nil
+	}
+	return a.notify("update available: "+m.text+" · "+a.cfg.LeaderKey()+" : update dock", false)
+}
+
+// runUpdate runs `dock update` with the terminal handed over, so its
+// output is visible, and waits for Enter before returning.
+func (a *App) runUpdate() tea.Cmd {
+	exe, err := os.Executable()
+	if err != nil {
+		return a.notify(err.Error(), true)
+	}
+	argv := execplugin.Paused([]string{exe, "update"})
+	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return updateDoneMsg{err} })
+}
+
+func (a *App) updateDone(m updateDoneMsg) tea.Cmd {
+	if m.err != nil {
+		return a.notify("update failed: "+m.err.Error(), true)
+	}
+	a.updates = ""
+	return a.notify("update finished: restart dock to use it", false)
 }
 
 // ---- status bar ----

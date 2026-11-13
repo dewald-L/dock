@@ -15,7 +15,8 @@
 # (dock needs it to build itself with plugins), downloads dock's source
 # into ~/.local/share/dock/src/dock and builds it, installs the
 # plugins, links ~/.local/bin/dock and adds ~/.local/bin (and Go) to your
-# shell's PATH. Running it again updates everything. No sudo needed.
+# shell's PATH. Running it again updates everything (so does
+# `dock update`). No sudo needed.
 set -eu
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -73,7 +74,16 @@ say "installing dock"
 boot="$DATA/src/dock"
 rm -rf "$boot"
 mkdir -p "$boot" "$BIN"
-curl -fsSL https://codeload.github.com/dewald-L/dock/tar.gz/refs/heads/main | tar -C "$boot" --strip-components=1 -xzf -
+# Install main's current commit and record it, so `dock update` can tell
+# when there is a newer one.
+sha=$(curl -fsSL -H 'Accept: application/vnd.github.sha' \
+	https://api.github.com/repos/dewald-L/dock/commits/main 2>/dev/null || true)
+case "$sha" in
+*[!0-9a-f]*) sha="" ;;
+esac
+[ "${#sha}" -eq 40 ] || sha=""
+curl -fsSL "https://codeload.github.com/dewald-L/dock/tar.gz/${sha:-refs/heads/main}" | tar -C "$boot" --strip-components=1 -xzf -
+[ -z "$sha" ] || printf '%s\n' "$sha" >"$boot/.dock-version"
 (cd "$boot" && go build -o dock .)
 
 if [ "$#" -eq 0 ]; then
