@@ -63,7 +63,9 @@ GOTOOLCHAIN=auto
 # Fetch dock's own modules straight from GitHub: the Go proxy can serve a
 # stale @latest for a while after a push.
 GOPRIVATE="${GOPRIVATE:+$GOPRIVATE,}github.com/dewald-L/*"
-export GOTOOLCHAIN GOPRIVATE
+# dock would suggest linking the binary; this script does that itself below.
+DOCK_NO_PATH_HINT=1
+export GOTOOLCHAIN GOPRIVATE DOCK_NO_PATH_HINT
 
 # ---- dock ----
 

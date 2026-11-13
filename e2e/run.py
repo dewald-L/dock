@@ -276,6 +276,8 @@ def scenario_install_sh():
         return p, listing, cfg
 
     p, listing, cfg = install("defaults")
+    check("add it to your PATH" not in p.stdout and "not this build" not in p.stdout,
+          "install.sh output has no misleading PATH hint", p.stdout)
     check("lazy1on1" in listing and "hello" in listing, "no arguments: the index defaults are installed", listing)
     check([n["package"] for n in cfg.get("native", [])] == [LAZY1ON1["package"]], "defaults: config has lazy1on1 only")
 

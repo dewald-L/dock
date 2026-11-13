@@ -392,3 +392,16 @@ func TestUpdateOffline(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
 }
+
+func TestPathHintSuppressed(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no dock on PATH: normally a hint
+	out, _ := capture(t, func() error { pathHint("/x/dock"); return nil })
+	if !strings.Contains(out, "add it to your PATH") {
+		t.Fatalf("no hint: %q", out)
+	}
+	t.Setenv("DOCK_NO_PATH_HINT", "1")
+	out, _ = capture(t, func() error { pathHint("/x/dock"); return nil })
+	if out != "" {
+		t.Fatalf("hint printed: %q", out)
+	}
+}

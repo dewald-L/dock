@@ -475,7 +475,11 @@ func binaryHas(bin, pkg string) bool {
 }
 
 // pathHint tells the user when `dock` on PATH is not the binary just built.
+// install.sh sets DOCK_NO_PATH_HINT: it links the binary itself afterwards.
 func pathHint(out string) {
+	if os.Getenv("DOCK_NO_PATH_HINT") != "" {
+		return
+	}
 	onPath, err := exec.LookPath("dock")
 	if err != nil {
 		fmt.Printf("add it to your PATH, e.g.: ln -s %s ~/.local/bin/dock\n", out)
