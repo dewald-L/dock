@@ -12,6 +12,25 @@ dock ships with no plugins other than its plugin manager. Everything else is ins
 
 ## Install
 
+On macOS or Linux, one command installs dock with the lazy1on1 plugin (and Go into
+`~/.local/go` if you don't have Go 1.21+). It needs no sudo. Run it again to update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh
+```
+
+Pass plugin packages to install those instead, or `none` for no plugins:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dewald-L/dock/main/install.sh | sh -s -- github.com/you/plugin/dockplugin
+```
+
+It downloads dock's source to `~/.local/share/dock/src/dock`, builds it, installs the
+plugins, links `~/.local/bin/dock`, and adds `~/.local/bin` to your shell's PATH. Open a
+new terminal afterwards.
+
+From a checkout instead:
+
 ```bash
 go build -o dock . && ln -sf "$PWD/dock" ~/.local/bin/dock
 ```

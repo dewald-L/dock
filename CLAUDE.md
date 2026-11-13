@@ -41,6 +41,12 @@ plugin API.
   `ResolveDock` picks the dock source in this order: config `source`, the checkout next to
   the running binary, a dock dependency's replace path (inside a built binary), then the
   version. Go stamps local builds with a VCS pseudo-version, so checkouts take priority.
+- `install.sh`: the curl-pipe installer (POSIX sh, macOS and Linux, no sudo). It installs
+  Go into ~/.local/go when there is no Go 1.21+, downloads the main tarball into
+  ~/.local/share/dock/src/dock and builds there (`go install dock@latest` refuses
+  dock's go.mod replace directives), installs plugins (default lazy1on1), links
+  ~/.local/bin/dock and edits the shell rc once. Check it with `shfmt -p` and a run
+  in a sandbox HOME.
 - `cli/`: the public command line (`cli.Main`); `main.go` is just `cli.Main()`.
   `install` and `remove` restore the config if the build fails. `dock plugin packages`
   (hidden) prints the registered packages and is used to verify an install.
