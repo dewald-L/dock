@@ -15,13 +15,16 @@ const MaxSummaryLines = 3
 // a plugin (or an exec summary command) can't make the host do unbounded
 // work or draw an unbounded block.
 const (
-	MaxSummaryRows   = 8   // total rows of all widgets in one block
-	MaxChartHeight   = 6   // plot rows of a BarChart, not counting its label rows
-	MaxChartBars     = 31  // bars in a BarChart
-	MaxSparkValues   = 512 // values in a Sparkline
-	MaxWidgets       = 8   // widgets in one Summary
-	MaxWidgetLabel   = 64  // runes in a label or text
-	MaxWidgetCaption = 16  // runes in a caption
+	MaxSummaryRows   = 8    // total rows of all widgets in one block
+	MaxChartHeight   = 6    // plot rows of a BarChart, not counting its label rows
+	MaxChartBars     = 31   // bars in a BarChart
+	MaxSparkValues   = 512  // values in a Sparkline
+	MaxWidgets       = 8    // widgets in one Summary
+	MaxWidgetLabel   = 64   // runes in a label or text
+	MaxWidgetCaption = 16   // runes in a caption, bar label or cell title
+	MaxCells         = 4    // cells in a Columns widget
+	MaxCellLines     = 4    // note rows in a Columns cell
+	MaxCellCount     = 9999 // a Cell's Count
 )
 
 // Level is an optional status for a Summary. The host picks the colour
@@ -90,6 +93,7 @@ const (
 	KindProgress  WidgetKind = "progress"  // label, bar filled Value/Max, caption
 	KindSparkline WidgetKind = "sparkline" // label and one row of tiny bars
 	KindBarChart  WidgetKind = "barchart"  // labelled vertical bars
+	KindColumns   WidgetKind = "columns"   // side-by-side cells, each a title, a count and a few lines
 )
 
 // Widget is one element of a rich Summary. Build them with Text, Progress,
@@ -105,7 +109,8 @@ type Widget struct {
 	Max     float64    `json:"max,omitempty"`     // progress, barchart: full scale (0: progress 1, barchart the largest bar)
 	Values  []float64  `json:"values,omitempty"`  // sparkline: oldest first
 	Bars    []Bar      `json:"bars,omitempty"`    // barchart
-	Height  int        `json:"height,omitempty"`  // barchart: plot rows, 1-MaxChartHeight (default 4)
+	Height  int        `json:"height,omitempty"`  // barchart: plot rows, 1-MaxChartHeight (default 4); columns: note rows per cell, 1-MaxCellLines (default 3)
+	Cells   []Cell     `json:"cells,omitempty"`   // columns: 1-MaxCells cells
 	Level   Level      `json:"level,omitempty"`   // colour of text, progress and sparkline
 }
 
@@ -116,6 +121,27 @@ type Bar struct {
 	Value   float64 `json:"value"`
 	Level   Level   `json:"level,omitempty"` // colour; LevelNone uses the default (accent when Focus)
 	Focus   bool    `json:"focus,omitempty"` // highlight (e.g. today): accent colour, bold label
+}
+
+// Cell is one cell of a Columns widget: a title with a count, then a few
+// note lines. Notes are plain text; the host truncates them to the cell.
+type Cell struct {
+	Title string   `json:"title,omitempty"` // cut to MaxWidgetCaption runes
+	Count int      `json:"count,omitempty"` // items the cell stands for (at least len(Lines)); shown after the title
+	Lines []string `json:"lines,omitempty"` // the notes, most important first; Clean keeps as many as the widget's Height
+	Level Level    `json:"level,omitempty"` // colour of the title and count
+}
+
+// MinCellWidth is the narrowest a Columns cell may get. When the cells
+// would be narrower, the host draws the summary's Lines instead.
+const MinCellWidth = 16
+
+// Columns is a row of 1-MaxCells cells sharing the block's width equally,
+// each height note rows (0: 3) below a title row. A cell with more items
+// than rows (Count above the notes shown) ends in "+N more"; an empty cell
+// shows "—". Stack two Columns for a 2x2 matrix.
+func Columns(height int, cells ...Cell) Widget {
+	return Widget{Kind: KindColumns, Height: height, Cells: cells}
 }
 
 // Text is a line of text, coloured by level.
@@ -143,6 +169,9 @@ func BarChart(height int, max float64, bars ...Bar) Widget {
 
 // Rows is how many terminal rows w takes (after Clean).
 func (w Widget) Rows() int {
+	if w.Kind == KindColumns {
+		return 1 + w.Height
+	}
 	if w.Kind != KindBarChart {
 		return 1
 	}
@@ -179,7 +208,7 @@ type Summarizer interface {
 // newlines split into separate lines, blank trailing lines dropped and at
 // most MaxSummaryLines lines kept. Widgets are validated: unknown kinds are
 // dropped, text is cleaned and cut, numbers are made finite and
-// non-negative, slices and heights are clamped, and widgets past
+// non-negative, slices, heights, cells and counts are clamped, and widgets past
 // MaxWidgets or MaxSummaryRows rows are dropped. The host applies it to
 // every summary.
 func (s Summary) Clean() Summary {
@@ -271,6 +300,33 @@ func cleanWidget(w Widget) (Widget, bool) {
 			})
 		}
 		return c, len(c.Bars) > 0
+	case KindColumns:
+		c.Height = w.Height
+		if c.Height <= 0 {
+			c.Height = 3
+		}
+		c.Height = min(c.Height, MaxCellLines)
+		for _, cell := range w.Cells {
+			if len(c.Cells) >= MaxCells {
+				break
+			}
+			cc := Cell{
+				Title: cutRunes(cleanLine(firstLine(cell.Title)), MaxWidgetCaption),
+				Level: cleanLevel(cell.Level),
+			}
+			seen := 0
+			for _, l := range cell.Lines {
+				if l = cutRunes(cleanLine(firstLine(l)), MaxWidgetLabel); l == "" {
+					continue
+				}
+				if seen++; len(cc.Lines) < c.Height {
+					cc.Lines = append(cc.Lines, l)
+				}
+			}
+			cc.Count = min(max(cell.Count, seen), MaxCellCount)
+			c.Cells = append(c.Cells, cc)
+		}
+		return c, len(c.Cells) > 0
 	}
 	return Widget{}, false
 }

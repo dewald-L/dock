@@ -21,17 +21,19 @@ plugin API.
   - `home.go`: the home screen (no tab open): `renderHome` draws a header row, a full-width
     vertical list of bordered entries (1 column margin) that scrolls, and a footer row, or
     `renderHomeList`, a plain list, when the tallest entry doesn't fit or the width is
-    under 40. `homeInner` builds an entry's content: a summary's `Widgets` are drawn
-    when they fit the width and the entry fits the list height, otherwise its text
+    under 40. `homeInner` builds an entry's content: a summary's `Widgets` (incl. columns
+    matrices) are drawn when they fit the width and the entry fits the list height, otherwise its text
     lines (`summaryText`) are shown. `borderLine` draws labelled borders. `homeKey` (digits, j/k, g/G, enter).
     `homeIDs` fixes the order and numbers (installed plugins first, system last) each
     time home appears.
-  - `widgets.go`: draws `plugin.Widget`s (text, progress, sparkline, bar chart) at a
+  - `widgets.go`: draws `plugin.Widget`s (text, progress, sparkline, bar chart, columns:
+    1-4 equal-width cells with a title, count and note rows, 16 cells minimum) at a
     given width with theme colours. The host scales them; plugins never learn the
     width. It returns `ok=false` when a widget doesn't fit, so the entry falls back
     to text.
   - `summary.go`: `plugin.Summarizer` and exec `summary` commands (plain lines or
-    JSON, parsed by `execplugin.ParseSummary`). `syncHome()` (called
+    JSON incl. the `columns` widget, parsed by `execplugin.ParseSummary`; `plugin.Summary.Clean`
+    validates every widget, cell and count). `syncHome()` (called
     from `sync()`) fetches when home appears and bumps `homeGen`; `summaryTickMsg{gen}`
     refreshes every 30 s and is dropped once home is hidden. Each fetch is its own
     `tea.Cmd` with a timeout and recover; `sumState.busy` stops a hung call from being

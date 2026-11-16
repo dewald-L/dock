@@ -23,3 +23,15 @@ func TestParseSummary(t *testing.T) {
 		t.Fatalf("invalid JSON is plain text: %+v", s)
 	}
 }
+
+func TestParseSummaryColumns(t *testing.T) {
+	s := ParseSummary(`{"lines":["x"],"widgets":[{"type":"columns","height":2,"cells":[` +
+		`{"title":"Do","count":3,"lines":["a","b"],"level":"warn"},{"title":"Drop"}]}]}`)
+	if len(s.Widgets) != 1 || s.Widgets[0].Kind != plugin.KindColumns || s.Widgets[0].Height != 2 {
+		t.Fatalf("%+v", s.Widgets)
+	}
+	c := s.Clean().Widgets[0].Cells
+	if len(c) != 2 || c[0].Title != "Do" || c[0].Count != 3 || c[0].Level != plugin.LevelWarn || len(c[0].Lines) != 2 || c[1].Title != "Drop" {
+		t.Fatalf("%+v", c)
+	}
+}

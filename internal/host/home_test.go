@@ -591,3 +591,165 @@ func TestSparklineWidget(t *testing.T) {
 		t.Fatalf("sparkline scales to the largest value:\n%s", b)
 	}
 }
+
+// ---- columns widget (a 2x2 matrix is two of them) ----
+
+func cell(title string, level plugin.Level, count int, notes ...string) plugin.Cell {
+	return plugin.Cell{Title: title, Count: count, Lines: notes, Level: level}
+}
+
+func matrixSummary() (plugin.Summary, error) {
+	return plugin.Summary{
+		Lines: []string{"fallback text"},
+		Widgets: []plugin.Widget{
+			plugin.Columns(2,
+				cell("Do now", plugin.LevelWarn, 3, "! ship the release", "reply to Sam", "water plants"),
+				cell("Schedule", plugin.LevelNone, 1, "plan Q1")),
+			plugin.Columns(2,
+				cell("Delegate", plugin.LevelNone, 0),
+				cell("Drop", plugin.LevelNone, 2, "tidy desk", "old inbox")),
+			plugin.Text("2 to sort", plugin.LevelNone),
+		},
+	}, nil
+}
+
+func TestMatrixExactFrames(t *testing.T) {
+	want := map[int]string{
+		60: `╭─ [1] mx ───────────────────────────────────────────────╮
+│                                                        │
+│ Do now 3                    Schedule 1                 │
+│ ! ship the release          plan Q1                    │
+│ +2 more                                                │
+│ Delegate                    Drop 2                     │
+│ —                           tidy desk                  │
+│                             old inbox                  │
+│ 2 to sort                                              │
+╰──────────────────────────────────────── native · tile ─╯`,
+		41: `╭─ [1] mx ────────────────────────────╮
+│                                     │
+│ Do now 3           Schedule 1       │
+│ ! ship the relea…  plan Q1          │
+│ +2 more                             │
+│ Delegate           Drop 2           │
+│ —                  tidy desk        │
+│                    old inbox        │
+│ 2 to sort                           │
+╰───────────────────── native · tile ─╯`,
+	}
+	for w, exp := range want {
+		a := newHomeApp(t, nil, w, 30, withSummary("mx", matrixSummary))
+		b := block(t, frameAt(t, a, w, 30), "[1] mx")
+		if b != exp {
+			t.Errorf("%d wide:\n%s\nwant:\n%s", w, b, exp)
+		}
+	}
+	for _, sz := range []struct{ w, h int }{{80, 24}, {160, 45}} {
+		a := newHomeApp(t, nil, sz.w, sz.h, withSummary("mx", matrixSummary))
+		b := block(t, frameAt(t, a, sz.w, sz.h), "[1] mx")
+		for _, want := range []string{"Do now 3", "Schedule 1", "Delegate", "Drop 2", "! ship the release", "—", "2 to sort"} {
+			if !strings.Contains(b, want) {
+				t.Errorf("%dx%d lacks %q:\n%s", sz.w, sz.h, want, b)
+			}
+		}
+		if strings.Contains(b, "fallback") {
+			t.Errorf("%dx%d: matrix replaces Lines:\n%s", sz.w, sz.h, b)
+		}
+	}
+}
+
+func TestMatrixOverflowAndUneven(t *testing.T) {
+	// 5 notes offered into 3 rows, a count past the notes given, a cell
+	// with fewer notes than rows, and an uneven number of cells
+	a := newHomeApp(t, nil, 90, 30, withSummary("mx", func() (plugin.Summary, error) {
+		return plugin.Summary{Lines: []string{"x"}, Widgets: []plugin.Widget{
+			plugin.Columns(3,
+				cell("Many", 0, 0, "n1", "n2", "n3", "n4", "n5"),
+				cell("Counted", 0, 40, "c1", "c2"),
+				cell("Exact", 0, 0, "e1", "e2", "e3")),
+			plugin.Columns(0, cell("Alone", 0, 1, "only")),
+		}}, nil
+	}))
+	b := block(t, frameAt(t, a, 90, 30), "[1] mx")
+	for _, want := range []string{"Many 5", "n2", "+3 more", "Counted 40", "c2", "+38 more", "Exact 3", "e3", "Alone 1", "only"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("lacks %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "n3") || strings.Contains(b, "n4") {
+		t.Errorf("notes past the rows are replaced by +N more:\n%s", b)
+	}
+	if n := len(strings.Split(b, "\n")); n != 1+1+4+4+1 { // title, description, 3+1 rows, 3+1 rows, border
+		t.Errorf("block is %d rows:\n%s", n, b)
+	}
+}
+
+func TestMatrixFallsBackToLines(t *testing.T) {
+	// too short: the 8 rows plus description and border don't fit the list
+	a := newHomeApp(t, nil, 80, 12, withSummary("mx", matrixSummary))
+	if b := block(t, frameAt(t, a, 80, 12), "[1] mx"); !strings.Contains(b, "fallback text") || strings.Contains(b, "Schedule") {
+		t.Fatalf("short terminal shows the text lines:\n%s", b)
+	}
+	// too narrow: 2 cells need 16+2+16 = 34 inner cells, a 4-cell row 70
+	a = newHomeApp(t, nil, 40, 30, withSummary("mx", func() (plugin.Summary, error) {
+		s, _ := matrixSummary()
+		s.Widgets = s.Widgets[:1]
+		s.Widgets[0].Cells = append(s.Widgets[0].Cells, cell("C", 0, 0), cell("D", 0, 0))
+		return s, nil
+	}))
+	if b := block(t, frameAt(t, a, 40, 30), "[1] mx"); !strings.Contains(b, "fallback text") || strings.Contains(b, "Schedule") {
+		t.Fatalf("narrow shows the text lines:\n%s", b)
+	}
+	// the plain list (width < 40) shows the first line
+	a = newHomeApp(t, nil, 36, 12, withSummary("mx", matrixSummary))
+	if v := frameAt(t, a, 36, 12); !strings.Contains(v, "fallback") || strings.Contains(v, "Schedule") {
+		t.Fatalf("list fallback uses the first line:\n%s", v)
+	}
+}
+
+func TestMatrixHostileValues(t *testing.T) {
+	long := strings.Repeat("W", 300)
+	wide := strings.Repeat("日本語", 40)
+	var cells []plugin.Cell
+	for i := 0; i < 20; i++ {
+		cells = append(cells, plugin.Cell{
+			Title: "\x1b[31m" + long, Count: -5 + i*1e6, Level: 99,
+			Lines: []string{"\x1b[2Jred\x07\r\nsecond line", wide, "", "\t\x00tab", long, "extra"},
+		})
+	}
+	a := newHomeApp(t, nil, 90, 40, withSummary("evil", func() (plugin.Summary, error) {
+		return plugin.Summary{Lines: []string{"ok"}, Widgets: []plugin.Widget{
+			{Kind: plugin.KindColumns, Height: -2, Cells: cells},
+			{Kind: plugin.KindColumns, Height: 1 << 30, Cells: cells[:2]},
+			{Kind: plugin.KindColumns}, // no cells: dropped
+			plugin.Text("tail", 0),
+		}}, nil
+	}), tile("after"))
+	v := frameAt(t, a, 90, 40) // every line exactly 90 wide, no panic
+	if strings.Contains(v, "\x1b") || strings.Contains(v, "second line") || !strings.Contains(v, "[2] after") {
+		t.Fatalf("hostile data must not break the frame:\n%s", v)
+	}
+}
+
+func TestMatrixFailuresStillWork(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a := newHomeApp(t, nil, 100, 40,
+		withSummary("mx", matrixSummary),
+		withSummary("slow", func() (plugin.Summary, error) { <-release; return matrixSummary() }),
+		withSummary("panicky", func() (plugin.Summary, error) {
+			s, _ := matrixSummary()
+			_ = s.Widgets[5] // index out of range
+			return s, nil
+		}),
+	)
+	v := frameAt(t, a, 100, 40)
+	if !strings.Contains(block(t, v, "[1] mx"), "Schedule 1") {
+		t.Fatal("matrix drawn")
+	}
+	if b := block(t, v, "[2] slow"); !strings.Contains(b, "timed out") {
+		t.Fatalf("timeout:\n%s", b)
+	}
+	if b := block(t, v, "[3] panicky"); !strings.Contains(b, "panic:") {
+		t.Fatalf("panic:\n%s", b)
+	}
+}

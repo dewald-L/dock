@@ -370,12 +370,46 @@ the same data is drawn at 60 or 160 columns, and no refetch is needed on resize.
 | `plugin.Progress(label, value, max, caption, level)` | `label ████▍░░░░ 51%` (an empty caption shows the percentage) | 1 |
 | `plugin.Sparkline(label, level, values...)` | `cpu ▁▂▄█▅`, oldest value first, scaled to the largest value | 1 |
 | `plugin.BarChart(height, max, bars...)` | vertical bars `height` rows tall (1–6, default 4), then a label row, then a caption row if any bar has a caption | height + 1 or 2 |
+| `plugin.Columns(height, cells...)` | 1–4 side-by-side cells sharing the width: a title row with a count, then `height` note rows (1–4, default 3) | 1 + height |
 
 A `plugin.Bar` has a `Label`, a `Caption` (e.g. its value), a `Value`, a `Level` (colour)
 and `Focus` (accent colour and bold label, e.g. for today). `max` is the value of a
 full bar (0 means the largest bar); bigger values are clamped, so give a bar past the
 target a `LevelWarn` to show it. Bars share the width (up to 14 cells each); heights
 have eighth-cell resolution.
+
+A `plugin.Cell` has a `Title` (16 runes), a `Count` (the items it stands for, shown after
+the title; at least `len(Lines)`), `Lines` (the notes, most important first, 64 runes each,
+plain text) and a `Level` (colours the title and count; the default is the accent).
+Cells get equal widths with a 2 cell gap, and notes are cut with `…`. A cell with more
+items than rows ends in `+N more`: it shows `height-1` notes, then the rest as a
+count. An empty cell shows a muted `—`. Every cell is `height` note rows tall, so
+cells in a row line up. A cell needs at least 16 cells of width
+(`plugin.MinCellWidth`), otherwise the host falls back to `Lines`. Stack two `Columns`
+for a 2x2 matrix (lazytodo's quadrants):
+
+```go
+plugin.Columns(2,
+    plugin.Cell{Title: "Do now", Count: 3, Level: plugin.LevelWarn, Lines: []string{"! ship the release", "reply to Sam", "water plants"}},
+    plugin.Cell{Title: "Schedule", Count: 1, Lines: []string{"plan Q1"}}),
+plugin.Columns(2,
+    plugin.Cell{Title: "Delegate"},
+    plugin.Cell{Title: "Drop", Count: 2, Lines: []string{"tidy desk", "old inbox"}}),
+plugin.Text("2 to sort", plugin.LevelNone),
+```
+
+```
+ ╭─ [1] lazytodo ──────────────────────────────────────────── ● ─╮
+ │ Quick todo capture                                            │
+ │ Do now 3                      Schedule 1                      │
+ │ ! ship the release            plan Q1                         │
+ │ +2 more                                                       │
+ │ Delegate                      Drop 2                          │
+ │ —                             tidy desk                       │
+ │                               old inbox                       │
+ │ 2 to sort                                                     │
+ ╰─────────────────────────────────────────────── native · tile ─╯
+```
 
 ```go
 func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
@@ -394,15 +428,17 @@ func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
 - **`Lines` is the fallback.** Always set it to a text version of the same status. dock
   shows it instead of the widgets when the entry would be too tall for the list
   (the terminal is short), when a widget doesn't fit the width (a bar chart needs
-  one cell per bar plus one between bars), and in the plain-list mode on tiny
+  one cell per bar plus one between bars; a `Columns` cell needs 16), and in the plain-list mode on tiny
   terminals (width under 40, which shows the first line). If `Lines` is empty, the text
   widgets stand in for it.
 - **Limits.** All widgets together take at most 8 rows (`plugin.MaxSummaryRows`); a
   widget that doesn't fit the budget is dropped, along with the ones after it. Also
-  at most 8 widgets, 31 bars, 512 sparkline values (the newest are kept), 64 runes per
-  text or label, and 16 per caption or bar label. Order the widgets by importance.
+  at most 8 widgets, 31 bars, 512 sparkline values (the newest are kept), 4 cells per
+  `Columns` and 4 note rows per cell (extra notes are dropped but still counted), counts up
+  to 9999, 64 runes per text, label or note, and 16 per caption, bar label or cell
+  title. Order the widgets by importance.
 - **Data is validated.** Text is cleaned like `Lines`; NaN, infinities and negative
-  numbers count as 0; an unknown widget kind, or a chart without bars, is skipped.
+  numbers count as 0; an unknown widget kind, a chart without bars or a `columns` without cells is skipped.
   `Summary.Clean` does this, and the host applies it for you.
 - **Same guarantees.** Timeouts, panics and refresh behave exactly as for plain
   summaries.
@@ -426,7 +462,10 @@ non-zero exit shows the first line of stderr. The stdout is either:
    {"type": "sparkline", "label": "cpu", "values": [1, 4, 2, 8]},
    {"type": "barchart", "height": 3, "max": 8,
     "bars": [{"label": "Mo", "value": 8, "caption": "8h"},
-             {"label": "Tu", "value": 9, "caption": "9h", "level": "warn", "focus": true}]}
+             {"label": "Tu", "value": 9, "caption": "9h", "level": "warn", "focus": true}]},
+   {"type": "columns", "height": 2,
+    "cells": [{"title": "Do now", "count": 3, "level": "warn", "lines": ["ship it", "reply to Sam"]},
+              {"title": "Drop"}]}
  ]}
 ```
 

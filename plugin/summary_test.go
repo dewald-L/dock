@@ -101,3 +101,35 @@ func TestSummaryJSON(t *testing.T) {
 		t.Fatalf("levels encode as names: %s", out)
 	}
 }
+
+func TestCleanColumns(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	var cells []Cell
+	for i := 0; i < 9; i++ {
+		cells = append(cells, Cell{Title: "\x1b[31mT\nsecond", Count: -4, Level: 99,
+			Lines: []string{"a\x07b", "", "\x1b[2K", long, "c", "d", "e", "f"}})
+	}
+	cells[1].Count = 1 << 40
+	cells[2] = Cell{} // an empty cell stays
+	s := Summary{Widgets: []Widget{{Kind: KindColumns, Height: 99, Cells: cells}}}.Clean()
+	w := s.Widgets[0]
+	if len(w.Cells) != MaxCells || w.Height != MaxCellLines || w.Rows() != 1+MaxCellLines {
+		t.Fatalf("cells %d height %d rows %d", len(w.Cells), w.Height, w.Rows())
+	}
+	c := w.Cells[0]
+	if c.Title != "T" || c.Level != LevelNone || len(c.Lines) != MaxCellLines || c.Lines[0] != "ab" ||
+		len([]rune(c.Lines[1])) != MaxWidgetLabel || c.Lines[2] != "c" {
+		t.Fatalf("cell not cleaned: %+v", c)
+	}
+	if c.Count != 6 { // blank and control-only notes don't count; the rest do
+		t.Errorf("count is at least the notes offered: %d", c.Count)
+	}
+	if w.Cells[1].Count != MaxCellCount || w.Cells[2].Count != 0 || len(w.Cells[2].Lines) != 0 {
+		t.Errorf("counts: %d, %d", w.Cells[1].Count, w.Cells[2].Count)
+	}
+	// default height, no cells = dropped, the 8 row budget applies
+	s = Summary{Widgets: []Widget{Columns(0, Cell{Title: "a"}), {Kind: KindColumns}, Columns(3, Cell{}), Text("x", 0)}}.Clean()
+	if len(s.Widgets) != 2 || s.Widgets[0].Height != 3 || s.Widgets[0].Rows()+s.Widgets[1].Rows() != MaxSummaryRows {
+		t.Fatalf("defaults and budget: %+v", s.Widgets)
+	}
+}

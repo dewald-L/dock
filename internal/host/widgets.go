@@ -54,6 +54,8 @@ func (a *App) renderWidgets(ws []plugin.Widget, w int) (rows []string, ok bool) 
 			r, ok = a.sparkline(wd, w)
 		case plugin.KindBarChart:
 			r, ok = a.barChart(wd, w)
+		case plugin.KindColumns:
+			r, ok = a.columns(wd, w)
 		default:
 			continue // unknown kind: skip it
 		}
@@ -219,6 +221,88 @@ func (a *App) barChart(wd plugin.Widget, w int) ([]string, bool) {
 		rows = append(rows, strings.Join(captions, sep))
 	}
 	return rows, true
+}
+
+// cellGap is the blank cells between the cells of a Columns widget.
+const cellGap = 2
+
+// columns draws wd.Cells side by side: the width left after the gaps is
+// shared equally (the first cells take the remainder, so every row is
+// exactly w wide). Each cell is a title row with its count, then Height
+// rows of notes. ok is false when a cell would be under plugin.MinCellWidth.
+func (a *App) columns(wd plugin.Widget, w int) ([]string, bool) {
+	n := len(wd.Cells)
+	if n == 0 {
+		return nil, false
+	}
+	base := (w - cellGap*(n-1)) / n
+	if base < plugin.MinCellWidth {
+		return nil, false
+	}
+	extra := (w - cellGap*(n-1)) % n
+	h := min(max(wd.Height, 1), plugin.MaxCellLines)
+	grid := make([][]string, n) // grid[cell][row]
+	for i, c := range wd.Cells {
+		cw := base
+		if i < extra {
+			cw++
+		}
+		grid[i] = a.cell(c, cw, h)
+	}
+	sep := strings.Repeat(" ", cellGap)
+	rows := make([]string, 1+h)
+	for r := range rows {
+		parts := make([]string, n)
+		for i := range grid {
+			parts[i] = grid[i][r]
+		}
+		rows[r] = strings.Join(parts, sep)
+	}
+	return rows, true
+}
+
+// cell draws one cell, 1+h rows of exactly w cells each.
+func (a *App) cell(c plugin.Cell, w, h int) []string {
+	pad := func(styled string, width int) string {
+		return styled + strings.Repeat(" ", max(w-width, 0))
+	}
+	ts, cs := a.st.accent.Bold(true), a.st.muted
+	if c.Level != plugin.LevelNone {
+		ts, cs = a.levelStyle(c.Level).Bold(true), a.levelStyle(c.Level)
+	}
+	count := ""
+	if c.Count > 0 {
+		count = fmt.Sprint(c.Count)
+	}
+	title := ansi.Truncate(c.Title, max(w-ansi.StringWidth(count)-1, 0), "…")
+	if count != "" && title != "" {
+		count = " " + count
+	}
+	rows := []string{pad(ts.Render(title)+cs.Render(count), ansi.StringWidth(title+count))}
+
+	notes := c.Lines
+	more := 0
+	if c.Count > len(notes) {
+		if len(notes)+1 > h {
+			notes = notes[:h-1]
+		}
+		more = c.Count - len(notes)
+	}
+	for _, l := range notes {
+		t := ansi.Truncate(l, w, "…")
+		rows = append(rows, pad(t, ansi.StringWidth(t)))
+	}
+	switch {
+	case more > 0:
+		t := ansi.Truncate(fmt.Sprintf("+%d more", more), w, "…")
+		rows = append(rows, pad(a.st.muted.Render(t), ansi.StringWidth(t)))
+	case len(notes) == 0:
+		rows = append(rows, pad(a.st.muted.Render("—"), 1))
+	}
+	for len(rows) < 1+h {
+		rows = append(rows, strings.Repeat(" ", w))
+	}
+	return rows[:1+h]
 }
 
 // summaryText is the plain-text form of a summary: its Lines, or, when a
