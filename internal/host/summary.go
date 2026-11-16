@@ -66,8 +66,7 @@ func (a *App) summarizer(e *registry.Entry) summaryFunc {
 			return nil
 		}
 		return func(ctx context.Context) (plugin.Summary, error) {
-			lines, err := execplugin.Summary(ctx, x)
-			return plugin.Summary{Lines: lines}, err
+			return execplugin.Summary(ctx, x)
 		}
 	case e.Plugin != nil:
 		s, ok := e.Plugin.(plugin.Summarizer)

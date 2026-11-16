@@ -3,6 +3,7 @@ package host
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -435,5 +436,158 @@ func TestNumbersStableWhileHomeOpen(t *testing.T) {
 	keys(a, "3")
 	if a.findByPlugin("gamma") == nil {
 		t.Fatal("3 still opens gamma")
+	}
+}
+
+// ---- rich summaries (widgets) ----
+
+func richSummary() (plugin.Summary, error) {
+	bars := []plugin.Bar{
+		{Label: "Mo", Caption: "8h", Value: 480},
+		{Label: "Tu", Caption: "4h", Value: 240},
+		{Label: "We", Caption: "8h15", Value: 495, Level: plugin.LevelWarn, Focus: true},
+		{Label: "Th", Caption: "·"}, {Label: "Fr", Caption: "·"}, {Label: "Sa", Caption: "·"}, {Label: "Su", Caption: "·"},
+	}
+	return plugin.Summary{
+		Lines: []string{"fallback text"},
+		Level: plugin.LevelWarn,
+		Widgets: []plugin.Widget{
+			plugin.Text("Today 8h15 · this week 20h15 / 40h", plugin.LevelNone),
+			plugin.BarChart(4, 480, bars...),
+			plugin.Progress("week", 20.25, 40, "", plugin.LevelOk),
+			plugin.Sparkline("spark", plugin.LevelNone, 1, 3, 2, 8),
+		},
+	}, nil
+}
+
+func TestRichSummaryAtWidths(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{60, 30}, {80, 30}, {160, 45}} {
+		a := newHomeApp(t, nil, sz.w, sz.h, withSummary("rich", richSummary))
+		v := frameAt(t, a, sz.w, sz.h)
+		b := block(t, v, "[1] rich")
+		for _, want := range []string{"Today 8h15", "████", "Mo", "8h15", "week", "51%"} {
+			if !strings.Contains(b, want) {
+				t.Errorf("%dx%d: block lacks %q:\n%s", sz.w, sz.h, want, b)
+			}
+		}
+		if strings.Contains(b, "fallback text") || !strings.Contains(b, "●") {
+			t.Errorf("%dx%d: rich form replaces Lines, level mark stays:\n%s", sz.w, sz.h, b)
+		}
+		if n := len(strings.Split(b, "\n")); n != 1+8+2 {
+			t.Errorf("%dx%d: block is %d rows tall:\n%s", sz.w, sz.h, n, b)
+		}
+	}
+}
+
+func TestRichSummaryFallsBackToLines(t *testing.T) {
+	// too short for the rich block: its Lines are shown, not a list
+	a := newHomeApp(t, nil, 80, 12, withSummary("rich", richSummary))
+	v := frameAt(t, a, 80, 12)
+	if b := block(t, v, "[1] rich"); !strings.Contains(b, "fallback text") || strings.Contains(b, "█") {
+		t.Fatalf("short terminal shows the text lines:\n%s", b)
+	}
+	// too narrow for a 7 bar chart (bars need 7 + 6 cells): same
+	a = newHomeApp(t, nil, 40, 30, withSummary("rich", func() (plugin.Summary, error) {
+		s, _ := richSummary()
+		s.Widgets = s.Widgets[1:2]
+		bs := s.Widgets[0].Bars
+		s.Widgets[0].Bars = append(append(append([]plugin.Bar{}, bs...), bs...), bs...)
+		return s, nil
+	}))
+	v = frameAt(t, a, 40, 30)
+	if b := block(t, v, "[1] rich"); !strings.Contains(b, "fallback text") {
+		t.Fatalf("too narrow for the chart shows the text lines:\n%s", b)
+	}
+	// plain list fallback (width < 40) shows the first text line
+	a = newHomeApp(t, nil, 36, 12, withSummary("rich", richSummary))
+	if v = frameAt(t, a, 36, 12); !strings.Contains(v, "fallback") {
+		t.Fatalf("list fallback uses the first text line:\n%s", v)
+	}
+	// widgets only, no Lines: the list falls back to the text widgets
+	a = newHomeApp(t, nil, 36, 12, withSummary("rich", func() (plugin.Summary, error) {
+		s, _ := richSummary()
+		s.Lines = nil
+		return s, nil
+	}))
+	if v = frameAt(t, a, 36, 12); !strings.Contains(v, "Today 8h15") {
+		t.Fatalf("list fallback derives text from text widgets:\n%s", v)
+	}
+}
+
+func TestRichSummaryBadValues(t *testing.T) {
+	nan, inf := math.NaN(), math.Inf(1)
+	long := strings.Repeat("W", 300)
+	bars := make([]plugin.Bar, 100)
+	for i := range bars {
+		bars[i] = plugin.Bar{Label: long, Caption: long, Value: nan}
+	}
+	a := newHomeApp(t, nil, 90, 40, withSummary("evil", func() (plugin.Summary, error) {
+		return plugin.Summary{Lines: []string{"ok"}, Widgets: []plugin.Widget{
+			{Kind: "x"},
+			{Kind: plugin.KindBarChart, Height: -3, Max: inf, Bars: bars},
+			{Kind: plugin.KindProgress, Label: long, Value: nan, Max: -1, Caption: "\x1b[31m" + long},
+			{Kind: plugin.KindSparkline, Label: long, Values: []float64{nan, inf, -1}},
+			plugin.Text(long, 99),
+		}}, nil
+	}), tile("after"))
+	v := frameAt(t, a, 90, 40) // every line exactly 90 wide, no panic
+	if strings.Contains(v, "\x1b") || !strings.Contains(v, "[2] after") {
+		t.Fatalf("bad data must not break the frame:\n%s", v)
+	}
+}
+
+func TestRichSummaryFailuresStillWork(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a := newHomeApp(t, nil, 100, 40,
+		withSummary("rich", richSummary),
+		withSummary("slow", func() (plugin.Summary, error) { <-release; return richSummary() }),
+		withSummary("panicky", func() (plugin.Summary, error) { panic("kaboom") }),
+	)
+	v := frameAt(t, a, 100, 40)
+	if !strings.Contains(block(t, v, "[1] rich"), "█") {
+		t.Fatal("rich block drawn")
+	}
+	if b := block(t, v, "[2] slow"); !strings.Contains(b, "timed out") {
+		t.Fatalf("timeout:\n%s", b)
+	}
+	if b := block(t, v, "[3] panicky"); !strings.Contains(b, "panic: kaboom") {
+		t.Fatalf("panic:\n%s", b)
+	}
+}
+
+func TestRichSummaryScrolls(t *testing.T) {
+	var ps []plugin.Plugin
+	for i := 1; i <= 4; i++ {
+		ps = append(ps, withSummary(fmt.Sprintf("r%d", i), richSummary))
+	}
+	a := newHomeApp(t, nil, 90, 24, ps...)
+	frameAt(t, a, 90, 24)
+	for range 5 {
+		keys(a, "j")
+		frameAt(t, a, 90, 24)
+	}
+	keys(a, "G")
+	frameAt(t, a, 90, 24)
+}
+
+func TestExecSummaryJSON(t *testing.T) {
+	js := `{"lines":["fallback"],"widgets":[{"type":"barchart","height":2,"bars":[{"label":"a","value":1},{"label":"b","value":2}]}]}`
+	cfg := &config.Config{Exec: []config.ExecPlugin{
+		{ID: "json", Command: []string{"true"}, Summary: []string{"sh", "-c", "printf '%s' '" + js + "'"}},
+	}}
+	a := newHomeApp(t, cfg, 100, 40)
+	v := frameAt(t, a, 100, 40)
+	if b := block(t, v, "[1] json"); !strings.Contains(b, "█") || strings.Contains(b, "fallback") {
+		t.Fatalf("exec JSON summary draws its widgets:\n%s", b)
+	}
+}
+
+func TestSparklineWidget(t *testing.T) {
+	a := newHomeApp(t, nil, 60, 20, withSummary("sp", func() (plugin.Summary, error) {
+		return plugin.Summary{Widgets: []plugin.Widget{plugin.Sparkline("cpu", plugin.LevelOk, 0, 1, 2, 4, 8)}}, nil
+	}))
+	if b := block(t, frameAt(t, a, 60, 20), "[1] sp"); !strings.Contains(b, "cpu ▁▁▂▄█") {
+		t.Fatalf("sparkline scales to the largest value:\n%s", b)
 	}
 }

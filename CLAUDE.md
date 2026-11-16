@@ -21,10 +21,17 @@ plugin API.
   - `home.go`: the home screen (no tab open): `renderHome` draws a header row, a full-width
     vertical list of bordered entries (1 column margin) that scrolls, and a footer row, or
     `renderHomeList`, a plain list, when the tallest entry doesn't fit or the width is
-    under 40. `borderLine` draws labelled borders. `homeKey` (digits, j/k, g/G, enter).
+    under 40. `homeInner` builds an entry's content: a summary's `Widgets` are drawn
+    when they fit the width and the entry fits the list height, otherwise its text
+    lines (`summaryText`) are shown. `borderLine` draws labelled borders. `homeKey` (digits, j/k, g/G, enter).
     `homeIDs` fixes the order and numbers (installed plugins first, system last) each
     time home appears.
-  - `summary.go`: `plugin.Summarizer` and exec `summary` commands. `syncHome()` (called
+  - `widgets.go`: draws `plugin.Widget`s (text, progress, sparkline, bar chart) at a
+    given width with theme colours. The host scales them; plugins never learn the
+    width. It returns `ok=false` when a widget doesn't fit, so the entry falls back
+    to text.
+  - `summary.go`: `plugin.Summarizer` and exec `summary` commands (plain lines or
+    JSON, parsed by `execplugin.ParseSummary`). `syncHome()` (called
     from `sync()`) fetches when home appears and bumps `homeGen`; `summaryTickMsg{gen}`
     refreshes every 30 s and is dropped once home is hidden. Each fetch is its own
     `tea.Cmd` with a timeout and recover; `sumState.busy` stops a hung call from being
@@ -98,7 +105,10 @@ plugin API.
 - The host only intercepts the leader key and ctrl+c. Don't add other global keys. The
   home screen's own keys (digits, hjkl...) only apply while no tab is open.
 - `plugin.Summarizer` is public API: keep it backwards compatible (optional interface,
-  plain-text lines, ≤ 3 lines).
+  plain-text `Lines`, ≤ 3 lines). The structured `Widgets` are optional and additive;
+  `Lines` stays the fallback. Plugin data is untrusted: `Summary.Clean` validates and
+  clamps every field (limits are `plugin.Max*`), and the drawing code must still
+  not overflow the width on odd values.
 
 ## Testing
 `go test ./...` (internal/host/host_test.go drives the model with a fake runtime;

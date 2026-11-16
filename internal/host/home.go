@@ -115,15 +115,15 @@ func (a *App) renderHome(w, h int) []string {
 	entries := a.homeEntries()
 	n := len(entries)
 	sel := min(a.homeSel, max(n-1, 0))
+	bw := w - 2    // blocks fill the width, one column of margin each side
+	listH := h - 2 // a header row above and a footer row below
 	heights := make([]int, n)
 	tallest := 1
 	for i, he := range entries {
-		heights[i] = a.homeBlockHeight(he.e)
+		heights[i] = a.homeBlockHeight(he.e, bw, listH)
 		tallest = max(tallest, heights[i])
 	}
 
-	bw := w - 2    // blocks fill the width, one column of margin each side
-	listH := h - 2 // a header row above and a footer row below
 	if w < 40 || listH < tallest {
 		return a.renderHomeList(w, h, entries, sel)
 	}
@@ -140,7 +140,7 @@ func (a *App) renderHome(w, h int) []string {
 	var inner []string
 	last := a.homeTop - 1
 	for i := a.homeTop; i < n && len(inner)+heights[i] <= listH; i++ {
-		inner = append(inner, a.homeBlock(entries[i], bw, heights[i], i == sel)...)
+		inner = append(inner, a.homeBlock(entries[i], bw, listH, heights[i], i == sel)...)
 		last = i
 	}
 	if n == 0 {
@@ -219,8 +219,8 @@ func (a *App) renderHomeList(w, h int, entries []homeEntry, sel int) []string {
 		he := entries[i]
 		name := names[i] + strings.Repeat(" ", nameW-ansi.StringWidth(names[i]))
 		detail := he.e.Manifest.Description
-		if st := a.sums[he.e.Manifest.ID]; st != nil && st.ok && len(st.sum.Lines) > 0 {
-			detail = st.sum.Lines[0]
+		if st := a.sums[he.e.Manifest.ID]; st != nil && st.ok && len(summaryText(st.sum)) > 0 {
+			detail = summaryText(st.sum)[0]
 		}
 		l := "  " + name
 		if i == sel {
@@ -231,31 +231,55 @@ func (a *App) renderHomeList(w, h int, entries []homeEntry, sel int) []string {
 	return fitBlock(truncLines(lines, w), w, h)
 }
 
-// homeBlock renders one plugin's entry, w wide and h tall.
-func (a *App) homeBlock(he homeEntry, w, h int, selected bool) []string {
+// homeBlock renders one plugin's entry, w wide and h tall. listH is the
+// room the list has, which decides whether a rich summary can be drawn.
+func (a *App) homeBlock(he homeEntry, w, listH, h int, selected bool) []string {
 	e := he.e
 	title := e.Manifest.Name
 	if he.num > 0 {
 		title = fmt.Sprintf("[%d] %s", he.num, title)
 	}
+	inner, mark := a.homeInner(e, w-4, listH)
+	return a.block(title, mark, kindHint(e), inner, w, h, selected)
+}
+
+// homeInner is the content of e's entry (innerW wide) and its status mark.
+// A summary with widgets is drawn rich when the widgets fit the width and
+// the entry fits listH; otherwise it falls back to its text lines.
+func (a *App) homeInner(e *registry.Entry, innerW, listH int) ([]string, label) {
 	inner := []string{a.st.muted.Render(e.Manifest.Description)}
 	var mark label
-	if a.summarizer(e) != nil {
-		st := a.sums[e.Manifest.ID]
-		switch {
-		case st != nil && st.ok:
-			inner = append(inner, st.sum.Lines...)
-			if st.err != "" {
-				inner = append(inner, a.st.muted.Render("refresh failed: "+st.err))
-			}
-			mark = a.levelMark(st.sum.Level)
-		case st != nil && st.err != "":
-			inner = append(inner, a.st.muted.Render("summary unavailable: "+st.err))
-		default:
-			inner = append(inner, a.st.muted.Render("…"))
-		}
+	if a.summarizer(e) == nil {
+		return inner, mark
 	}
-	return a.block(title, mark, kindHint(e), inner, w, h, selected)
+	st := a.sums[e.Manifest.ID]
+	switch {
+	case st != nil && st.ok:
+		body := summaryText(st.sum)
+		if len(st.sum.Widgets) > 0 {
+			rows, ok := a.renderWidgets(st.sum.Widgets, innerW)
+			if ok && len(inner)+len(rows)+boolInt(st.err != "")+2 <= listH {
+				body = rows
+			}
+		}
+		inner = append(inner, body...)
+		if st.err != "" {
+			inner = append(inner, a.st.muted.Render("refresh failed: "+st.err))
+		}
+		mark = a.levelMark(st.sum.Level)
+	case st != nil && st.err != "":
+		inner = append(inner, a.st.muted.Render("summary unavailable: "+st.err))
+	default:
+		inner = append(inner, a.st.muted.Render("…"))
+	}
+	return inner, mark
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (a *App) levelMark(l plugin.Level) label {
@@ -273,22 +297,10 @@ func (a *App) levelMark(l plugin.Level) label {
 	return label{"●", lipgloss.NewStyle().Foreground(c)}
 }
 
-// homeBlockHeight is the outer height e's entry wants.
-func (a *App) homeBlockHeight(e *registry.Entry) int {
-	n := 1 // description
-	if a.summarizer(e) != nil {
-		st := a.sums[e.Manifest.ID]
-		switch {
-		case st != nil && st.ok:
-			n += len(st.sum.Lines)
-			if st.err != "" {
-				n++
-			}
-		default:
-			n++ // "…" or the error
-		}
-	}
-	return n + 2
+// homeBlockHeight is the outer height e's entry wants at width w.
+func (a *App) homeBlockHeight(e *registry.Entry, w, listH int) int {
+	inner, _ := a.homeInner(e, w-4, listH)
+	return len(inner) + 2
 }
 
 // block draws a rounded box with a title on the top border, an optional

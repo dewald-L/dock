@@ -113,6 +113,8 @@ dock lazy1on1        # start with plugins already open, one tab each
 While no tab is open, dock shows a vertical list of numbered,
 bordered plugin entries, each as wide as the terminal. Each entry has the plugin's description, its kind and, for
 plugins that provide one, a live summary such as today's hours or open action items.
+A summary is a few text lines, or richer: bars, progress bars, sparklines and bar
+charts that dock draws at the entry's width in the theme's colours.
 The list scrolls inside the panel when it doesn't fit; on very small terminals it
 becomes a plain one-line-per-plugin list. Summaries refresh every 30 seconds while the
 home screen is visible; a slow or broken plugin only affects its own entry.

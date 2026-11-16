@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -70,13 +71,12 @@ func Prepare(x *config.ExecPlugin) (*Run, error) {
 }
 
 // Summary runs the exec plugin's summary command (it must have one) and
-// returns the first plugin.MaxSummaryLines lines of its stdout. It gets the
-// same environment as the plugin itself, plus DOCK_SUMMARY=1. The process
-// is killed when ctx ends.
-func Summary(ctx context.Context, x *config.ExecPlugin) ([]string, error) {
+// parses its stdout (see ParseSummary). It gets the same environment as the
+// plugin itself, plus DOCK_SUMMARY=1. The process is killed when ctx ends.
+func Summary(ctx context.Context, x *config.ExecPlugin) (plugin.Summary, error) {
 	data, conf, err := config.EnsurePluginDirs(x.ID)
 	if err != nil {
-		return nil, err
+		return plugin.Summary{}, err
 	}
 	c := exec.CommandContext(ctx, x.Summary[0], x.Summary[1:]...)
 	c.Dir = x.Dir
@@ -96,21 +96,36 @@ func Summary(ctx context.Context, x *config.ExecPlugin) ([]string, error) {
 	c.WaitDelay = 200 * time.Millisecond
 	if err := c.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return plugin.Summary{}, ctx.Err()
 		}
 		if msg := firstLine(errOut.String()); msg != "" {
-			return nil, fmt.Errorf("%s (%v)", msg, err)
+			return plugin.Summary{}, fmt.Errorf("%s (%v)", msg, err)
 		}
-		return nil, err
+		return plugin.Summary{}, err
 	}
-	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	return ParseSummary(out.String()), nil
+}
+
+// ParseSummary reads a summary command's stdout. Output that starts with
+// "{" and is a valid JSON object is the structured form (the JSON encoding
+// of plugin.Summary: "lines", "level", "widgets"); anything else, including
+// invalid JSON, is plain text whose lines are the summary. The result is
+// not yet cleaned or clamped: the host does that.
+func ParseSummary(out string) plugin.Summary {
+	if t := strings.TrimSpace(out); strings.HasPrefix(t, "{") {
+		var s plugin.Summary
+		if err := json.Unmarshal([]byte(t), &s); err == nil {
+			return s
+		}
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) > plugin.MaxSummaryLines {
 		lines = lines[:plugin.MaxSummaryLines]
 	}
 	if len(lines) == 1 && lines[0] == "" {
 		lines = nil
 	}
-	return lines, nil
+	return plugin.Summary{Lines: lines}
 }
 
 func firstLine(s string) string {

@@ -293,20 +293,25 @@ Both exist before `New` is called.
 
 dock's home screen (shown while no tab is open) is a full-width vertical
 list of entries, one per plugin: `[1] Name` in the title, the description, and the kind
-at the bottom. A plugin can add a few lines of live status to its entry, so the home
-screen works as a dashboard:
+at the bottom. A plugin can add live status to its entry, from a couple of text lines to small
+charts, so the home screen works as a dashboard:
 
 ```
 dock 0.2.0
- ╭─ [1] lazysheet ───────────────────────────────── ● ─╮
- │ Timesheets: log, browse, edit and total hours        │
- │ Today 8h15 · this week 18h15 / 40h                   │
- │ Mo█ Tu▆ We█ Th· Fr· Sa· Su·                          │
- ╰───────────────────────────────────── native · full ─╯
- ╭─ [2] Scratch ────────────────────────────────────────╮
- │ A notepad that saves itself                          │
- ╰───────────────────────────────────── native · tile ─╯
-                               1-9 open · j/k move · ? help
+ ╭─ [1] lazysheet ──────────────────────────────────────────── ● ─╮
+ │ Timesheets: log, browse, edit and total hours                  │
+ │ Today 8h15 · this week 41h00 / 40h                             │
+ │ ███████  ▆▆▆▆▆▆▆  ███████  ███████  ███████                    │
+ │ ███████  ███████  ███████  ███████  ███████                    │
+ │ ███████  ███████  ███████  ███████  ███████                    │
+ │ ███████  ███████  ███████  ███████  ███████                    │
+ │    Mo       Tu       We       Th       Fr       Sa       Su    │
+ │   8h00     7h30     9h00     8h15     8h15      ·        ·     │
+ ╰──────────────────────────────────────────────── native · full ─╯
+ ╭─ [2] Scratch ──────────────────────────────────────────────────╮
+ │ A notepad that saves itself                                    │
+ ╰──────────────────────────────────────────────── native · tile ─╯
+                                       1-9 open · j/k move · ? help
 ```
 
 **When to implement one:** when there is one or two numbers worth seeing without
@@ -332,10 +337,11 @@ func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
 
 The rules:
 
-- **Plain text only.** Up to 3 short lines (`plugin.MaxSummaryLines`); the host
+- **Plain text in `Lines`.** Up to 3 short lines (`plugin.MaxSummaryLines`); the host
   truncates lines that don't fit the entry, and strips ANSI codes and control
   characters. No layout, no colour: `Level` (`LevelOk`, `LevelWarn`, `LevelErr`, or
   the default `LevelNone`) puts a dot in the theme's colour on the entry's border.
+  A summary with only `Lines` is complete and always works.
 - **Read-only, and independent of any instance.** `ctx` has the same `DataDir`,
   `ConfigDir` and `Theme` as `New` gets, but no model exists necessarily.
 - **Runs off the UI goroutine, possibly while an instance of the same plugin is open,
@@ -351,11 +357,82 @@ The rules:
 - Plugins without `Summarizer` keep working unchanged; their entry shows the
   description only.
 
-**Exec plugins** can have a summary too: a command whose stdout (first 3 lines) is
-shown. Set it with `dock plugin add --summary 'df -h --output=avail,pcent / | tail -1' ...` (run with
+### Rich summaries: `Widgets`
+
+Set `Summary.Widgets` to show structured data. dock draws it at the entry's width, in
+the theme's colours (`Level` colours, `Focus` uses the accent), so a plugin never deals
+with ANSI codes, terminal width or a no-colour terminal. Plugins don't learn the width:
+the same data is drawn at 60 or 160 columns, and no refetch is needed on resize.
+
+| Constructor | Draws | Rows |
+|---|---|---|
+| `plugin.Text(text, level)` | one line of text | 1 |
+| `plugin.Progress(label, value, max, caption, level)` | `label ████▍░░░░ 51%` (an empty caption shows the percentage) | 1 |
+| `plugin.Sparkline(label, level, values...)` | `cpu ▁▂▄█▅`, oldest value first, scaled to the largest value | 1 |
+| `plugin.BarChart(height, max, bars...)` | vertical bars `height` rows tall (1–6, default 4), then a label row, then a caption row if any bar has a caption | height + 1 or 2 |
+
+A `plugin.Bar` has a `Label`, a `Caption` (e.g. its value), a `Value`, a `Level` (colour)
+and `Focus` (accent colour and bold label, e.g. for today). `max` is the value of a
+full bar (0 means the largest bar); bigger values are clamped, so give a bar past the
+target a `LevelWarn` to show it. Bars share the width (up to 14 cells each); heights
+have eighth-cell resolution.
+
+```go
+func (Plugin) Summary(ctx plugin.Context) (plugin.Summary, error) {
+    head := fmt.Sprintf("Today %s · this week %s / 40h", today, week)
+    return plugin.Summary{
+        Lines: []string{head, "Mo█ Tu▆ We▃ Th· Fr· Sa· Su·"}, // the fallback
+        Level: plugin.LevelWarn,
+        Widgets: []plugin.Widget{
+            plugin.Text(head, plugin.LevelNone),
+            plugin.BarChart(4, 480, bars...), // 480 = a full 8h bar
+        },
+    }, nil
+}
+```
+
+- **`Lines` is the fallback.** Always set it to a text version of the same status. dock
+  shows it instead of the widgets when the entry would be too tall for the list
+  (the terminal is short), when a widget doesn't fit the width (a bar chart needs
+  one cell per bar plus one between bars), and in the plain-list mode on tiny
+  terminals (width under 40, which shows the first line). If `Lines` is empty, the text
+  widgets stand in for it.
+- **Limits.** All widgets together take at most 8 rows (`plugin.MaxSummaryRows`); a
+  widget that doesn't fit the budget is dropped, along with the ones after it. Also
+  at most 8 widgets, 31 bars, 512 sparkline values (the newest are kept), 64 runes per
+  text or label, and 16 per caption or bar label. Order the widgets by importance.
+- **Data is validated.** Text is cleaned like `Lines`; NaN, infinities and negative
+  numbers count as 0; an unknown widget kind, or a chart without bars, is skipped.
+  `Summary.Clean` does this, and the host applies it for you.
+- **Same guarantees.** Timeouts, panics and refresh behave exactly as for plain
+  summaries.
+
+**Exec plugins** can have a summary too: a command whose stdout is shown. Set it with
+`dock plugin add --summary 'df -h --output=avail,pcent / | tail -1' ...` (run with
 `sh -c`) or the config's `"summary": ["prog", "arg"]`. It gets the plugin's usual
 environment plus `DOCK_SUMMARY=1`, runs under the same 2 second timeout, and a
-non-zero exit shows the first line of stderr.
+non-zero exit shows the first line of stderr. The stdout is either:
+
+- **plain text**: the first 3 lines are shown; or
+- **JSON**: output that starts with `{` and parses as one JSON object is the structured
+  form, with the same fields as `plugin.Summary`:
+
+```json
+{"lines": ["Today 8h15 · this week 41h / 40h"],
+ "level": "warn",
+ "widgets": [
+   {"type": "text", "text": "Today 8h15 · this week 41h / 40h"},
+   {"type": "progress", "label": "week", "value": 41, "max": 40, "caption": "41h", "level": "warn"},
+   {"type": "sparkline", "label": "cpu", "values": [1, 4, 2, 8]},
+   {"type": "barchart", "height": 3, "max": 8,
+    "bars": [{"label": "Mo", "value": 8, "caption": "8h"},
+             {"label": "Tu", "value": 9, "caption": "9h", "level": "warn", "focus": true}]}
+ ]}
+```
+
+`level` is `"none"`, `"ok"`, `"warn"` or `"err"`; unknown names count as none. Output
+that starts with `{` but isn't valid JSON is shown as plain text. The same limits and
+validation as for native plugins apply. Stdout is read up to 16 KiB.
 
 Home screen keys: `1`–`9` open the plugin with that number, `j`/`k` (or arrows)
 move, `enter`/`o` open the selected one. Numbers follow the plugin
@@ -431,7 +508,7 @@ off). It gets these environment variables:
 - [ ] Styled with `ctx.Theme`.
 - [ ] Data in `ctx.DataDir`, or the tool's existing location, documented.
 - [ ] If there is status worth a glance, `Summary` is implemented on the Plugin value:
-      plain text, at most 3 lines, read-only, safe to call concurrently, under 100 ms,
+      `Lines` as plain text (at most 3), and `Widgets` only on top of them; read-only, safe to call concurrently, under 100 ms,
       and unit-tested.
 - [ ] `plugin.Register` called from `init`. `dock plugin install` builds it, and
       `dock plugin list` shows it.
