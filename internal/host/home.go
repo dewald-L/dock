@@ -2,6 +2,7 @@ package host
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,7 +19,7 @@ import (
 
 const (
 	maxHomeNumber = 9
-	homeKeyHint   = "1-9 open · j/k move · ? help"
+	homeKeyHint   = "1-9 open · j/k move · J/K reorder · ? help"
 )
 
 type homeEntry struct {
@@ -26,14 +27,21 @@ type homeEntry struct {
 	num int // 1-9, or 0 for no number
 }
 
-// refreshHomeIDs appends enabled plugins missing from homeIDs. Installed
-// plugins come first in registry order, built-in (system) plugins last.
+// refreshHomeIDs appends enabled plugins missing from homeIDs: first those
+// in the config's home_order, then the rest. Installed plugins come first in
+// registry order, built-in (system) plugins last.
 func (a *App) refreshHomeIDs() {
 	have := map[string]bool{}
 	for _, id := range a.homeIDs {
 		have[id] = true
 	}
 	enabled := a.reg.Enabled()
+	for _, id := range a.cfg.HomeOrder {
+		if e := a.reg.Get(id); e != nil && e.Enabled && !have[id] {
+			a.homeIDs = append(a.homeIDs, id)
+			have[id] = true
+		}
+	}
 	for _, system := range []bool{false, true} {
 		for _, e := range enabled {
 			if (e.Kind == registry.System) == system && !have[e.Manifest.ID] {
@@ -90,6 +98,10 @@ func (a *App) homeKey(s string) tea.Cmd {
 		if sel < n {
 			return a.open(entries[sel].e.Manifest.ID, false)
 		}
+	case "J", "shift+down":
+		return a.moveHome(sel, 1)
+	case "K", "shift+up":
+		return a.moveHome(sel, -1)
 	case ":", "p":
 		return a.openPalette("")
 	case "m":
@@ -100,6 +112,28 @@ func (a *App) homeKey(s string) tea.Cmd {
 		return a.quit()
 	}
 	a.homeSel = sel
+	return nil
+}
+
+// moveHome swaps the selected entry with its neighbour in direction dir
+// (-1 up, 1 down), skipping disabled plugins, keeps the selection on it and
+// saves the order to the config. Numbers follow the new positions.
+func (a *App) moveHome(sel, dir int) tea.Cmd {
+	entries := a.homeEntries()
+	if sel < 0 || sel >= len(entries) || sel+dir < 0 || sel+dir >= len(entries) {
+		return nil
+	}
+	i := slices.Index(a.homeIDs, entries[sel].e.Manifest.ID)
+	j := slices.Index(a.homeIDs, entries[sel+dir].e.Manifest.ID)
+	if i < 0 || j < 0 {
+		return nil
+	}
+	a.homeIDs[i], a.homeIDs[j] = a.homeIDs[j], a.homeIDs[i]
+	a.homeSel = sel + dir
+	a.cfg.HomeOrder = slices.Clone(a.homeIDs)
+	if err := a.cfg.Save(); err != nil {
+		return a.notify("saving order: "+err.Error(), true)
+	}
 	return nil
 }
 

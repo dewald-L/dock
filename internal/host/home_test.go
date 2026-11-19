@@ -753,3 +753,32 @@ func TestMatrixFailuresStillWork(t *testing.T) {
 		t.Fatalf("panic:\n%s", b)
 	}
 }
+
+func TestReorderHomeSavesOrder(t *testing.T) {
+	a := newHomeApp(t, nil, 100, 40, tile("alpha"), tile("beta"), tile("gamma"))
+	keys(a, "J")
+	if a.homeSel != 1 {
+		t.Fatalf("selection follows the moved entry, got %d", a.homeSel)
+	}
+	v := frameAt(t, a, 100, 40)
+	if !strings.Contains(v, "[1] beta") || !strings.Contains(v, "[2] alpha") {
+		t.Fatalf("numbers follow the new order:\n%s", v)
+	}
+	keys(a, "K", "K")
+	if a.homeSel != 0 || a.homeIDs[0] != "alpha" {
+		t.Fatalf("K at the top does nothing, got sel %d ids %v", a.homeSel, a.homeIDs)
+	}
+	keys(a, "j", "J")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(cfg.HomeOrder[:3]); got != "[beta gamma alpha]" && got != "[alpha gamma beta]" {
+		t.Fatalf("order saved, got %v", cfg.HomeOrder)
+	}
+	// a new session starts in the saved order
+	b := newHomeApp(t, &config.Config{HomeOrder: []string{"gamma", "beta"}}, 100, 40, tile("alpha"), tile("beta"), tile("gamma"))
+	if got := fmt.Sprint(b.homeIDs[:3]); got != "[gamma beta alpha]" {
+		t.Fatalf("saved order applies, got %v", got)
+	}
+}

@@ -311,7 +311,7 @@ dock 0.2.0
  ╭─ [2] Scratch ──────────────────────────────────────────────────╮
  │ A notepad that saves itself                                    │
  ╰──────────────────────────────────────────────── native · tile ─╯
-                                       1-9 open · j/k move · ? help
+                                       1-9 open · j/k move · J/K reorder · ? help
 ```
 
 **When to implement one:** when there is one or two numbers worth seeing without
@@ -474,9 +474,10 @@ that starts with `{` but isn't valid JSON is shown as plain text. The same limit
 validation as for native plugins apply. Stdout is read up to 16 KiB.
 
 Home screen keys: `1`–`9` open the plugin with that number, `j`/`k` (or arrows)
-move, `enter`/`o` open the selected one. Numbers follow the plugin
-order (built-in plugins last), stay fixed while the home screen is open, and stop at
-9. These keys only exist on the home screen: inside a tab, digits go to the plugin
+move, `enter`/`o` open the selected one, and `J`/`K` (or shift+arrows) move the
+selected entry down/up. The order is saved in the config as `home_order`. Numbers follow
+the plugin order (default: built-in plugins last), stay fixed while the home screen is
+open apart from reordering, and stop at 9. These keys only exist on the home screen: inside a tab, digits go to the plugin
 as usual.
 
 ---

@@ -213,7 +213,7 @@ func (a *App) renderStatus() string {
 	case a.overlay == ovPalette:
 		left = a.st.muted.Render(" ↑/↓ select · enter run · esc close")
 	case len(a.tabs) == 0:
-		left = a.st.muted.Render(" 1-9/enter open · j/k move · : palette · m plugins · q quit")
+		left = a.st.muted.Render(" 1-9 open · j/k move · J/K order · : palette · m plugins · q quit")
 	default:
 		if in := a.focused(); in != nil {
 			var hs []string
@@ -279,6 +279,7 @@ func (a *App) renderHelp() []string {
 	home := [][2]string{
 		{"1-9", "open the plugin with that number"},
 		{"j k  arrows  g G", "move, first / last"},
+		{"J K  shift+arrows", "move the selected plugin down / up (saved)"},
 		{"enter  o", "open the selected plugin"},
 		{":  m  ?  q", "palette, plugins, help, quit"},
 	}

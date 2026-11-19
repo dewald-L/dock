@@ -22,6 +22,10 @@ type Config struct {
 	// Startup lists plugin IDs to open, one tab each, when dock starts
 	// without arguments.
 	Startup []string `json:"startup,omitempty"`
+	// HomeOrder lists plugin IDs in the order the home screen shows them.
+	// Plugins not listed follow in the default order. Set by J / K on the
+	// home screen.
+	HomeOrder []string `json:"home_order,omitempty"`
 	// Disabled lists plugin IDs hidden from the home screen and palette.
 	Disabled []string `json:"disabled,omitempty"`
 	// Exec lists external programs registered as plugins.
